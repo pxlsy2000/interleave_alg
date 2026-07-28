@@ -205,9 +205,9 @@ $$
 
 第一项保证固定 Target 和任意 $u$ 时，都存在唯一的低位 $p$。第二项保证 LA line 正好等于 $u$，没有 bit 置换、XOR 重排或依赖 Target 的偏移。
 
-即使整体 Mapping 是双射，只要上述任一条件不成立，LA 自然顺序检查和最终产品结论都必须失败。报告仍应明确说明“双射检查通过，但 LA 不满足自然顺序”，不能将它误报为双射检查失败。
+即使整体 Mapping 是双射，只要上述任一条件不成立，就必须报告“Mapping 有效，但 LA 不满足自然顺序”，不能将它误报为双射失败。
 
-原因是 LA bit 置换、XOR 重排或依赖 Target 的偏移会破坏每个 Target 内的连续性和局部性，对实际访问性能影响过大。v1 不接受这种 Mapping。
+LA bit 置换、XOR 重排或依赖 Target 的偏移可能破坏每个 Target 内的连续性和局部性，因此该 warning 必须醒目展示，并保留在 validate、map 和 run 的输出中；但它不改变 Mapping 双射成立的事实，也不阻止后续分析。
 
 当 $r=0$ 时，$M_p$ 是空矩阵，其秩定义为 0；当 $s=0$ 时，$I_s$ 是空单位矩阵。这两个退化情况仍按同一公式处理。
 
@@ -216,9 +216,9 @@ $$
 | 分类 | 条件 | 命令结果 |
 | --- | --- | --- |
 | `valid_natural` | Target 可达、Mapping 双射、LA 自然有序 | 成功 |
+| `valid_non_natural` | Target 可达、Mapping 双射、LA 不自然 | 成功并给出 warning |
 | `invalid_target_unreachable` | $\operatorname{rank}(M)<r$ | 失败 |
 | `invalid_non_bijective` | $\operatorname{rank}(M)=r$，但 $\operatorname{rank}(F)<n$ | 失败 |
-| `invalid_non_natural` | Target 可达且 Mapping 双射，但 LA 不自然 | 失败 |
 
 如果输入结构本身无效，例如矩阵尺寸错误，则不进行最终分类，而是报告具体输入错误。
 
@@ -316,7 +316,13 @@ $$
 
 该模式下不允许同时出现 `mapping.l.rows`。
 
-`explicit` 表示使用者明确给出 $L$。例如：
+`explicit` 表示使用者逐行给出 $L$。每一行仍然是 GF(2) 上的 XOR 规则，并不是普通整数加法。
+
+配置格式允许 explicit $L$ 使用任意合法 tap，包括非单位变换。是否可接受由第 2 章的秩与自然顺序检查决定。
+
+严格来说，$L$ 的尺寸是 $s\times n$，通常不是方阵，因此这里的“非单位”是指它不等于自然 LA 所要求的分块形式 $[0\ I_s]$。
+
+以下写法只是把 `preserve_high` 等价地展开为 explicit rows，因此仍然通过自然 LA 检查：
 
 ```yaml
 mapping:
@@ -342,6 +348,47 @@ mapping:
 ```
 
 explicit 模式必须出现 `mapping.l.rows`。如果 explicit 矩阵恰好等于 preserve-high 矩阵，它仍被判定为 LA 自然有序。
+
+下面是一个非单位但仍保持双射的 explicit $L$：
+
+```yaml
+mapping:
+  m:
+    rows:
+      - [0, 4, 8]
+      - [1, 5, 9]
+  l:
+    mode: explicit
+    rows:
+      - [2, 3]  # LA bit 0 = x[2] XOR x[3]
+      - [3]     # LA bit 1 = x[3]
+      - [4]
+      - [5]
+      - [6]
+      - [7]
+      - [8]
+      - [9]
+      - [10]
+      - [11]
+      - [12]
+      - [13]
+```
+
+该例只把 LA 的最低两位改为：
+
+$$
+\ell_0=x_2\oplus x_3,\qquad
+\ell_1=x_3
+$$
+
+其余 LA bit 仍直接保留对应高位。LA 高位部分的变换矩阵是可逆的，因此组合矩阵 $F$ 仍满秩：
+
+- Target 可达检查通过；
+- Mapping 双射检查通过；
+- 因为 $L\ne[0\ I_s]$，LA 自然顺序检查产生 warning；
+- 最终分类为 `valid_non_natural`，validate 退出码为 0，map 和 run 可以继续，但必须保留该 warning。
+
+因此，explicit 可以描述并使用非单位 XOR 矩阵；任何不等于 $[0\ I_s]$ 的 $L$ 都会失去自然 LA，但只要 Target 可达且 $F$ 满秩，Mapping 仍然有效。
 
 ### 3.3 Scenario 文件
 
@@ -554,7 +601,8 @@ interleave map
 - 地址接受非负十进制或 `0x` 十六进制；
 - 保持命令行中的地址顺序；
 - 在查询前验证 Mapping；
-- 只有 `valid_natural` Mapping 可以查询；
+- `valid_natural` 和 `valid_non_natural` Mapping 都可以查询；
+- `valid_non_natural` 的查询报告必须保留 `mapping.non_natural` warning；
 - 无效 Mapping 或任一地址越界时不输出部分查询结果。
 
 ### 4.5 运行场景
@@ -577,7 +625,8 @@ interleave run
 - 同一个名称被重复选择时只运行一次；
 - 最终运行顺序始终按 Scenario 文件中的声明顺序；
 - 找不到指定名称或最终没有选中任何 case 时失败；
-- 只有 `valid_natural` Mapping 可以运行；
+- `valid_natural` 和 `valid_non_natural` Mapping 都可以运行；
+- `valid_non_natural` 的场景报告必须保留 `mapping.non_natural` warning；
 - 运行前验证所有选中场景；任一场景无效时不产生部分分析结果。
 
 ## 5. 性能指标
@@ -1020,7 +1069,7 @@ run JSON 中各比例的精确字段固定为：
 | `mapping.unsupported` | error | Mapping 合理但不属于 v1 范围 |
 | `mapping.target_unreachable` | error | $\operatorname{rank}(M)<r$ |
 | `mapping.non_bijective` | error | $\operatorname{rank}(F)<n$ |
-| `mapping.non_natural` | error | Mapping 双射，但 LA 不自然 |
+| `mapping.non_natural` | warning | Mapping 双射，但 LA 不自然 |
 | `scenario.invalid` | error | Scenario 字段或继承结果无效 |
 | `scenario.case_not_found` | error | `--case` 未匹配到名称 |
 | `scenario.no_case_selected` | error | 最终没有可运行 case |
@@ -1058,7 +1107,7 @@ run JSON 中各比例的精确字段固定为：
 | `explicit` 未提供 rows | Mapping 输入错误 |
 | 矩阵合法但 Target 不可达 | `invalid_target_unreachable` |
 | Target 可达但 $F$ 不满秩 | `invalid_non_bijective` |
-| $F$ 满秩但 LA 不自然 | `invalid_non_natural`，退出码 2，并阻止 map 和 run |
+| $F$ 满秩但 LA 不自然 | `valid_non_natural` warning，退出码 0，允许 map 和 run |
 
 ### 8.2 地址和数值
 
@@ -1108,7 +1157,7 @@ run JSON 中各比例的精确字段固定为：
 - `rank(M)=r` 与“所有 Target 可达”的枚举结果一致；
 - `rank(F)=n` 与 `(Target, LA line)` 无重复、无空洞的枚举结果一致；
 - `rank(M_p)=r` 且 $L=[0\ I]$ 时，固定每个 Target 后 LA line 严格为 `0,1,2,...`；
-- 双射但 LA bit 被置换时，双射检查通过，但最终分类为 `invalid_non_natural`，并阻止 map 和 run；
+- 双射但 LA bit 被置换时，分类为 `valid_non_natural`，validate、map 和 run 均保留 warning；
 - byte offset 在所有 Mapping 中原样保留。
 
 ### 9.2 输入与命令
