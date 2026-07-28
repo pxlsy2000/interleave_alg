@@ -318,9 +318,7 @@ $$
 
 `explicit` 表示使用者逐行给出 $L$。每一行仍然是 GF(2) 上的 XOR 规则，并不是普通整数加法。
 
-配置格式允许 explicit $L$ 使用任意合法 tap，包括非单位变换。是否可接受由第 2 章的秩与自然顺序检查决定。
-
-严格来说，$L$ 的尺寸是 $s\times n$，通常不是方阵，因此这里的“非单位”是指它不等于自然 LA 所要求的分块形式 $[0\ I_s]$。
+配置格式允许 explicit $L$ 使用任意合法 tap。是否可接受由第 2 章的秩与自然顺序检查决定。
 
 以下写法只是把 `preserve_high` 等价地展开为 explicit rows，因此仍然通过自然 LA 检查：
 
@@ -349,7 +347,7 @@ mapping:
 
 explicit 模式必须出现 `mapping.l.rows`。如果 explicit 矩阵恰好等于 preserve-high 矩阵，它仍被判定为 LA 自然有序。
 
-下面是一个非单位但仍保持双射的 explicit $L$：
+下面是一个使用 XOR 重排、但仍保持双射的 explicit $L$：
 
 ```yaml
 mapping:
@@ -388,7 +386,7 @@ $$
 - 因为 $L\ne[0\ I_s]$，LA 自然顺序检查产生 warning；
 - 最终分类为 `valid_non_natural`，validate 退出码为 0，map 和 run 可以继续，但必须保留该 warning。
 
-因此，explicit 可以描述并使用非单位 XOR 矩阵；任何不等于 $[0\ I_s]$ 的 $L$ 都会失去自然 LA，但只要 Target 可达且 $F$ 满秩，Mapping 仍然有效。
+因此，explicit 可以描述并使用自定义 XOR 变换；任何不等于 $[0\ I_s]$ 的 $L$ 都会失去自然 LA，但只要 Target 可达且 $F$ 满秩，Mapping 仍然有效。
 
 ### 3.3 Scenario 文件
 
