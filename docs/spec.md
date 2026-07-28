@@ -222,9 +222,168 @@ LA bit 置换、XOR 重排或依赖 Target 的偏移可能破坏每个 Target �
 
 如果输入结构本身无效，例如矩阵尺寸错误，则不进行最终分类，而是报告具体输入错误。
 
-## 3. 用户输入格式
+## 3. 激励与性能指标
 
-### 3.1 格式选择
+### 3.1 从激励到统计结果
+
+一次性能测试的起点是一条确定、有序的 byte-address 激励序列：
+
+$$
+a_0,a_1,\ldots,a_{Q-1}
+$$
+
+激励可以来自单个线性访问流，也可以由多个访问流按确定顺序合并。无论来源如何，展开后的一个具体测试都必须得到唯一的地址序列。
+
+Mapping 将每个地址转换为 Target：
+
+$$
+y_i=\operatorname{Target}(a_i),
+\qquad
+0\le i<Q
+$$
+
+因此分析器真正统计的是有序 Target 序列：
+
+$$
+y_0,y_1,\ldots,y_{Q-1}
+$$
+
+相同地址集合以不同顺序出现时，长期访问总量可能相同，但短时拥塞和连续访问可能不同，因此顺序不能丢失。
+
+对每个具体测试，工具独立统计以下四类结果：
+
+| 类别 | 指标 | 回答的问题 |
+| --- | --- | --- |
+| A | 各 Target 的 count 和 share | 总访问量是否均匀分配 |
+| B | 最大负载率 $R_{\max}$ | 长期最繁忙的 Target 偏离理想值多少 |
+| C | 短时负载率 $R_{\mathrm{window}}(W)$ | 任意连续窗口内是否出现局部拥塞 |
+| D | 最长连续访问 $L_{\mathrm{run}}$ | 请求是否连续成团落到同一 Target |
+
+下面依次给出四类结果的正式定义。设：
+
+- $Q>0$ 为该具体测试的总访问数；
+- $N$ 为 Target 数量；
+- $y_i\in\{0,\ldots,N-1\}$ 为第 $i$ 次访问对应的 Target。
+
+### 3.2 A：各 Target 访问量
+
+Target $j$ 的访问次数：
+
+$$
+C_j =
+\sum_{i=0}^{Q-1}
+\mathbf{1}[y_i=j]
+$$
+
+访问占比：
+
+$$
+S_j=\frac{C_j}{Q}
+$$
+
+必须满足：
+
+$$
+\sum_{j=0}^{N-1}C_j=Q
+$$
+
+### 3.3 B：最大负载率
+
+理想的每 Target 平均访问数为 $Q/N$。
+
+$$
+R_{\max}
+=
+\max_{0\le j<N}
+\frac{C_j}{Q/N}
+=
+\frac{N\cdot\max_j C_j}{Q}
+$$
+
+$R_{\max}=1$ 表示长期分布完全均衡。数值越大，表示最繁忙 Target 偏离理想平均值越多。
+
+如果多个 Target 的 $C_j$ 同为最大值，报告选择最小 Target ID 作为代表；$R_{\max}$ 的数值不受该选择影响。
+
+### 3.4 C：短时拥塞
+
+窗口大小 $W$ 的单位是**访问次数**，不是 byte、时间或 cycle。短时拥塞会随观察尺度变化，因此一个具体测试可以同时指定多个 $W$。
+
+例如 `window_sizes: [4, 16, 64]` 表示对同一条 Target 序列分别计算：
+
+- 任意连续 4 次访问中的最差分布；
+- 任意连续 16 次访问中的最差分布；
+- 任意连续 64 次访问中的最差分布。
+
+三个窗口大小各自产生一条短时拥塞结果。它们不会把 case 展开成三个具体测试，也不会改变原始地址或 Target 序列。
+
+对于每个窗口大小 $W$，必须满足 $1\le W\le Q$。
+
+从起点 $k$ 开始的窗口中，Target $j$ 的访问次数为：
+
+$$
+C_{j,k}^{(W)}
+=
+\sum_{i=k}^{k+W-1}
+\mathbf{1}[y_i=j],
+\qquad
+0\le k\le Q-W
+$$
+
+窗口 $W$ 的最差负载率为：
+
+$$
+R_{\mathrm{window}}(W)
+=
+\max_{\substack{0\le k\le Q-W\\0\le j<N}}
+\frac{C_{j,k}^{(W)}}{W/N}
+=
+\frac{N}{W}
+\max_{k,j} C_{j,k}^{(W)}
+$$
+
+即使 $W<N$，仍使用实数理想值 $W/N$，不做取整。
+
+如果多个 `(k, j)` 同为最差值，按以下顺序选择报告代表：
+
+1. 最小窗口起点 $k$；
+2. 在同一起点下选择最小 Target ID $j$。
+
+### 3.5 D：最长连续访问
+
+最长连续同 Target 访问定义为：
+
+$$
+L_{\mathrm{run}}
+=
+\max
+\left\{
+d\ \middle|\
+d\ge1,\quad
+\exists k,j,\quad
+0\le k,\quad
+k+d\le Q,\quad
+0\le j<N,\quad
+y_k=y_{k+1}=\cdots=y_{k+d-1}=j
+\right\}
+$$
+
+报告同时给出：
+
+- 长度 $L_{\mathrm{run}}$；
+- Target ID；
+- 起始访问下标。
+
+如果有多个同长度的最长 run，选择起始下标最小的一个。
+
+### 3.6 sweep 的指标边界
+
+sweep 的每个 `(base, stride)` 组合都是独立的具体测试，各自计算 $Q$、$C_j$、$R_{\max}$、$R_{\mathrm{window}}$ 和 $L_{\mathrm{run}}$。
+
+v1 不定义跨组合聚合指标。
+
+## 4. 用户输入格式
+
+### 4.1 格式选择
 
 v1 只接受 YAML 1.2 配置文件：
 
@@ -247,9 +406,9 @@ v1 只接受 YAML 1.2 配置文件：
 
 地址类数值可以写成非负十进制整数或 `0x` 开头的十六进制整数。工具生成的模板统一使用小写十六进制。
 
-### 3.2 Mapping 文件
+### 4.2 Mapping 文件
 
-#### 3.2.1 完整示例
+#### 4.2.1 完整示例
 
 ```yaml
 schema_version: 1
@@ -272,7 +431,7 @@ mapping:
     mode: preserve_high
 ```
 
-#### 3.2.2 字段定义
+#### 4.2.2 字段定义
 
 | 路径 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
@@ -303,7 +462,7 @@ $$
 - tap 顺序不影响语义；
 - 空行表示常量 0，语法上允许，但可能导致秩检查失败。
 
-#### 3.2.3 LA 模式
+#### 4.2.3 LA 模式
 
 `preserve_high` 表示：
 
@@ -388,62 +547,67 @@ $$
 
 因此，explicit 可以描述并使用自定义 XOR 变换；任何不等于 $[0\ I_s]$ 的 $L$ 都会失去自然 LA，但只要 Target 可达且 $F$ 满秩，Mapping 仍然有效。
 
-### 3.3 Scenario 文件
+### 4.3 Scenario 文件
 
-#### 3.3.1 完整示例
+Scenario 文件描述如何生成第 3.1 节定义的具体测试。文件中的一个 `case` 是使用者声明的场景；case 经过默认值继承和必要的组合展开后，会得到一个或多个具体测试。
 
-```yaml
-schema_version: 1
+一个具体测试必须只有一条确定、有序的 byte-address 序列。第 3 章的所有性能指标都以这条序列为独立计算单位，不跨测试合并。
 
-defaults:
-  accesses: 4096
-  window_sizes: [4, 16, 64]
+#### 4.3.1 一个具体测试是什么
 
-cases:
-  - name: sequential
-    enabled: true
-    kind: stride
-    base_bytes: 0x0
-    stride_bytes: 64
+以“从 `0x0` 开始、每次增加 64 byte、共访问 4 次”为例，测试过程为：
 
-  - name: stride-and-phase-sweep
-    enabled: true
-    kind: sweep
-    base_bytes: [0x0, 0x40, 0x80, 0xc0]
-    stride_bytes: [64, 128, 256]
-    accesses: 4096
-    window_sizes: [4, 16, 64, 256]
+```text
+场景参数
+  base = 0x0
+  stride = 64
+  accesses = 4
 
-  - name: two-master
-    enabled: true
-    kind: multi_stream
-    schedule: round_robin
-    window_sizes: [4, 16, 64]
-    streams:
-      - name: master0
-        base_bytes: 0x0
-        stride_bytes: 256
-        accesses: 2048
-      - name: master1
-        base_bytes: 0x40
-        stride_bytes: 256
-        accesses: 2048
+生成有序地址序列
+  [0x0, 0x40, 0x80, 0xc0]
+
+经过 Mapping 得到有序 Target 序列
+  [Target(0x0), Target(0x40), Target(0x80), Target(0xc0)]
+
+对该 Target 序列计算
+  各 Target count、R_max、各窗口 R_window、最长 run
 ```
 
-#### 3.3.2 公共字段
+地址的先后顺序是测试的一部分。同一组地址以不同顺序出现，长期 count 可能相同，但短时窗口和最长 run 可能不同。
+
+工具处理 Scenario 的固定流程为：
+
+1. 根据 `enabled` 和 `--case` 选择 case；
+2. 解析每个 case 的默认值；
+3. 将 case 展开为一个或多个具体测试；
+4. 为每个具体测试生成有序 byte-address 序列；
+5. 使用 Mapping 生成对应的 Target 序列；
+6. 独立计算并报告每个具体测试的指标。
+
+#### 4.3.2 三类场景如何展开
+
+| kind | 使用者描述的内容 | 展开结果 | 主要用途 |
+| --- | --- | --- | --- |
+| `stride` | 一个 base、一个 stride、访问次数 | 1 个具体测试 | 观察一种固定线性访问 |
+| `sweep` | 多个 base 和多个 stride | 每个 `(base, stride)` 组合各 1 个具体测试 | 比较相位和步长变化 |
+| `multi_stream` | 多个 stream 及合并顺序 | 合并为 1 个具体测试 | 观察多主设备或多请求源叠加 |
+
+stride 和 multi-stream 的 `case_id` 等于 case 名称。sweep 的每个组合都有独立 `case_id`，规则见第 4.3.5 节。
+
+#### 4.3.3 公共字段
 
 | 路径 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
 | `schema_version` | integer | 是 | 固定为 `1` |
 | `defaults.accesses` | integer | 是 | stride 和 sweep 的默认访问次数，必须大于 0 |
-| `defaults.window_sizes` | integer array | 是 | 默认窗口列表 |
+| `defaults.window_sizes` | integer array | 是 | 默认短时拥塞窗口列表；单位为访问次数 |
 | `cases` | case array | 是 | 至少包含一个场景 |
 | `cases[].name` | string | 是 | 在文件内唯一，格式见下文 |
 | `cases[].enabled` | boolean | 否 | 默认 `true` |
 | `cases[].kind` | string | 是 | `stride`、`sweep` 或 `multi_stream` |
-| `cases[].window_sizes` | integer array | 否 | 覆盖默认窗口 |
+| `cases[].window_sizes` | integer array | 否 | 覆盖默认短时拥塞窗口列表 |
 
-窗口列表必须非空、元素唯一且均大于 0。
+窗口列表必须非空、元素唯一且均大于 0。列表中的每个值都作为第 3.4 节公式里的一个独立 $W$；列表本身不增加具体测试数量。
 
 stride 和 sweep 的有效访问次数为 case 自身的 `accesses`，若省略则使用 `defaults.accesses`。所有 case 的有效窗口列表为 case 自身的 `window_sizes`，若省略则使用 `defaults.window_sizes`。窗口合法性针对继承完成后的最终列表检查。
 
@@ -455,7 +619,7 @@ case 名称必须匹配：
 
 该限制保证名称可以直接用于 `--case`，并且不会与 sweep 自动生成的组合 ID 冲突。
 
-#### 3.3.3 stride
+#### 4.3.4 stride
 
 字段：
 
@@ -474,7 +638,9 @@ $$
 
 未对齐到 $G$ 的 base 或 stride 是合法的；Mapping 对每个生成的 byte address 独立计算，并保留其 byte offset。
 
-#### 3.3.4 sweep
+一个 stride case 只生成一个具体测试，其 `case_id` 等于 `name`。
+
+#### 4.3.5 sweep
 
 字段：
 
@@ -503,13 +669,15 @@ sweep 对 base 与 stride 做笛卡尔积。顺序固定为：
 stride-and-phase-sweep[base=0x40,stride=0x100]
 ```
 
-#### 3.3.5 multi_stream
+#### 4.3.6 multi_stream
+
+`schedule` 定义多个 stream 的地址以什么顺序合并成一条最终激励。调度顺序会直接影响短时拥塞和最长连续访问，因此必须显式指定并保证结果可重复。
 
 字段：
 
 | 字段 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `schedule` | string | 是 | v1 固定为 `round_robin` |
+| `schedule` | string | 是 | stream 合并策略；v1 只支持 `round_robin` |
 | `streams` | stream array | 是 | 至少包含一个 stream |
 | `streams[].name` | string | 是 | 在 case 内唯一，且遵循 case 名称的字符规则 |
 | `streams[].base_bytes` | address scalar | 是 | stream 首个 byte address |
@@ -524,6 +692,16 @@ stride-and-phase-sweep[base=0x40,stride=0x100]
 2. 已结束的 stream 被跳过；
 3. 重复以上步骤，直到所有 stream 结束。
 
+例如：
+
+```text
+master0: [A0, A1, A2]
+master1: [B0, B1]
+
+round_robin 结果:
+[A0, B0, A1, B1, A2]
+```
+
 因此 multi-stream 场景的总访问数为：
 
 $$
@@ -534,11 +712,63 @@ $$
 
 multi-stream case 不接受 case 级 `accesses` 字段。
 
-## 4. 命令行接口
+一个 multi-stream case 合并后只生成一个具体测试，其 `case_id` 等于 `name`。
+
+#### 4.3.7 完整示例
+
+理解上述测试模型后，一份包含三类场景的完整文件如下：
+
+```yaml
+schema_version: 1
+
+defaults:
+  accesses: 4096
+  window_sizes: [4, 16, 64]
+
+cases:
+  - name: sequential
+    enabled: true
+    kind: stride
+    base_bytes: 0x0
+    stride_bytes: 64
+
+  - name: stride-and-phase-sweep
+    enabled: true
+    kind: sweep
+    base_bytes: [0x0, 0x40, 0x80, 0xc0]
+    stride_bytes: [64, 128, 256]
+    accesses: 4096
+    window_sizes: [4, 16, 64, 256]
+
+  - name: two-master
+    enabled: true
+    kind: multi_stream
+    schedule: round_robin  # 每轮按 streams 声明顺序各取一个地址
+    window_sizes: [4, 16, 64]
+    streams:
+      - name: master0
+        base_bytes: 0x0
+        stride_bytes: 256
+        accesses: 2048
+      - name: master1
+        base_bytes: 0x40
+        stride_bytes: 256
+        accesses: 2048
+```
+
+在三个 case 全部启用时，该文件展开为：
+
+- `sequential`：1 个具体测试；
+- `stride-and-phase-sweep`：$4\times3=12$ 个具体测试；
+- `two-master`：2 个 stream 合并成 1 个具体测试。
+
+因此工具按确定顺序运行并报告 14 个彼此独立的具体测试。
+
+## 5. 命令行接口
 
 二进制命令名固定为 `interleave`。
 
-### 4.1 通用约定
+### 5.1 通用约定
 
 - `--help` 显示帮助并以退出码 0 结束；
 - `--version` 显示工具版本并以退出码 0 结束；
@@ -551,7 +781,7 @@ multi-stream case 不接受 case 级 `accesses` 字段。
 - `--force` 只有在 `--output` 指向普通文件时才允许使用；
 - 同一条命令最多只能有一个输入文件来自标准输入。
 
-### 4.2 生成模板
+### 5.2 生成模板
 
 ```text
 interleave template mapping  --output <FILE> [--force]
@@ -565,7 +795,7 @@ interleave template scenario --output <FILE> [--force]
 - template 命令不支持 `--format`；
 - `--output` 必填。
 
-### 4.3 验证 Mapping
+### 5.3 验证 Mapping
 
 ```text
 interleave validate
@@ -582,7 +812,7 @@ interleave validate
 - `--verbose` 在 text 输出中附加完整的 $M$、$L$、$F$ 和 $M_p$ 0/1 矩阵；
 - `--verbose` 与 `--format json` 不能同时使用。
 
-### 4.4 查询地址
+### 5.4 查询地址
 
 ```text
 interleave map
@@ -603,7 +833,7 @@ interleave map
 - `valid_non_natural` 的查询报告必须保留 `mapping.non_natural` warning；
 - 无效 Mapping 或任一地址越界时不输出部分查询结果。
 
-### 4.5 运行场景
+### 5.5 运行场景
 
 ```text
 interleave run
@@ -626,120 +856,6 @@ interleave run
 - `valid_natural` 和 `valid_non_natural` Mapping 都可以运行；
 - `valid_non_natural` 的场景报告必须保留 `mapping.non_natural` warning；
 - 运行前验证所有选中场景；任一场景无效时不产生部分分析结果。
-
-## 5. 性能指标
-
-对一个已展开的场景，设：
-
-- $Q>0$ 为总访问数；
-- $N$ 为 Target 数量；
-- $y_i\in\{0,\ldots,N-1\}$ 为第 $i$ 次访问对应的 Target。
-
-### 5.1 各 Target 访问量
-
-Target $j$ 的访问次数：
-
-$$
-C_j =
-\sum_{i=0}^{Q-1}
-\mathbf{1}[y_i=j]
-$$
-
-访问占比：
-
-$$
-S_j=\frac{C_j}{Q}
-$$
-
-必须满足：
-
-$$
-\sum_{j=0}^{N-1}C_j=Q
-$$
-
-### 5.2 最大负载率
-
-理想的每 Target 平均访问数为 $Q/N$。
-
-$$
-R_{\max}
-=
-\max_{0\le j<N}
-\frac{C_j}{Q/N}
-=
-\frac{N\cdot\max_j C_j}{Q}
-$$
-
-$R_{\max}=1$ 表示长期分布完全均衡。数值越大，表示最繁忙 Target 偏离理想平均值越多。
-
-如果多个 Target 的 $C_j$ 同为最大值，报告选择最小 Target ID 作为代表；$R_{\max}$ 的数值不受该选择影响。
-
-### 5.3 短时拥塞
-
-对于窗口大小 $W$，必须满足 $1\le W\le Q$。
-
-从起点 $k$ 开始的窗口中，Target $j$ 的访问次数为：
-
-$$
-C_{j,k}^{(W)}
-=
-\sum_{i=k}^{k+W-1}
-\mathbf{1}[y_i=j],
-\qquad
-0\le k\le Q-W
-$$
-
-窗口 $W$ 的最差负载率为：
-
-$$
-R_{\mathrm{window}}(W)
-=
-\max_{\substack{0\le k\le Q-W\\0\le j<N}}
-\frac{C_{j,k}^{(W)}}{W/N}
-=
-\frac{N}{W}
-\max_{k,j} C_{j,k}^{(W)}
-$$
-
-即使 $W<N$，仍使用实数理想值 $W/N$，不做取整。
-
-如果多个 `(k, j)` 同为最差值，按以下顺序选择报告代表：
-
-1. 最小窗口起点 $k$；
-2. 在同一起点下选择最小 Target ID $j$。
-
-### 5.4 最长连续访问
-
-最长连续同 Target 访问定义为：
-
-$$
-L_{\mathrm{run}}
-=
-\max
-\left\{
-d\ \middle|\
-d\ge1,\quad
-\exists k,j,\quad
-0\le k,\quad
-k+d\le Q,\quad
-0\le j<N,\quad
-y_k=y_{k+1}=\cdots=y_{k+d-1}=j
-\right\}
-$$
-
-报告同时给出：
-
-- 长度 $L_{\mathrm{run}}$；
-- Target ID；
-- 起始访问下标。
-
-如果有多个同长度的最长 run，选择起始下标最小的一个。
-
-### 5.5 sweep 的指标边界
-
-sweep 的每个 `(base, stride)` 组合都有独立的 $Q$、$C_j$、$R_{\max}$、$R_{\mathrm{window}}$ 和 $L_{\mathrm{run}}$。
-
-v1 不定义跨组合聚合指标。
 
 ## 6. 输出格式
 
@@ -1033,7 +1149,7 @@ JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺�
 
 `windows` 按 Scenario 中 `window_sizes` 的声明顺序排列。
 
-sweep 的 `case_id` 使用第 3.3.4 节定义的组合 ID，`source_case` 保留原始 case 名称。
+sweep 的 `case_id` 使用第 4.3.5 节定义的组合 ID，`source_case` 保留原始 case 名称。
 
 run JSON 中各比例的精确字段固定为：
 
@@ -1162,7 +1278,7 @@ run JSON 中各比例的精确字段固定为：
 
 - 两类 template 输出均可直接被对应命令读取；
 - Mapping 和 Scenario 的未知字段、重复字段和错误类型不会被静默忽略；
-- `validate`、`map`、`run` 的选项、选择顺序和退出码符合第 4、7 章；
+- `validate`、`map`、`run` 的选项、选择顺序和退出码符合第 5、7 章；
 - 所有 corner case 的行为符合第 8 章；
 - 任何失败都不会留下部分查询、部分场景或截断输出文件。
 
