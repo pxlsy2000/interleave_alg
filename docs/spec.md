@@ -888,13 +888,56 @@ interleave run
 6. `rank(M_p)`、$L$ 比较结果与 LA 自然顺序结论；
 7. 最终分类和 warning/error。
 
-示例：
+使用 `--verbose` 时，完整矩阵插在派生参数与检查结果之间。矩阵中的列始终按
+`x0, x1, ..., x(n-1)` 排列；$F$ 的行依次为 $M$ 的所有行和 $L$ 的所有行；
+$M_p$ 只包含 $M$ 的前 $r$ 列。
+
+以下是第 4.2.1 节 Mapping 通过验证时的完整 `--verbose` text 输出：
 
 ```text
 Mapping: example-4-target
-Address: 20 bits, granule 64 bytes
-Derived: n=14, targets=4, r=2, s=12
+Input: mapping.yaml
+Derived: A=20, G=64, g=6, n=14, N=4, r=2, s=12
 
+M (2 x 14; columns x0..x13)
+  t0   1 0 0 0 1 0 0 0 1 0 0 0 0 0
+  t1   0 1 0 0 0 1 0 0 0 1 0 0 0 0
+
+L (12 x 14; columns x0..x13)
+  l0   0 0 1 0 0 0 0 0 0 0 0 0 0 0
+  l1   0 0 0 1 0 0 0 0 0 0 0 0 0 0
+  l2   0 0 0 0 1 0 0 0 0 0 0 0 0 0
+  l3   0 0 0 0 0 1 0 0 0 0 0 0 0 0
+  l4   0 0 0 0 0 0 1 0 0 0 0 0 0 0
+  l5   0 0 0 0 0 0 0 1 0 0 0 0 0 0
+  l6   0 0 0 0 0 0 0 0 1 0 0 0 0 0
+  l7   0 0 0 0 0 0 0 0 0 1 0 0 0 0
+  l8   0 0 0 0 0 0 0 0 0 0 1 0 0 0
+  l9   0 0 0 0 0 0 0 0 0 0 0 1 0 0
+  l10  0 0 0 0 0 0 0 0 0 0 0 0 1 0
+  l11  0 0 0 0 0 0 0 0 0 0 0 0 0 1
+
+F (14 x 14; rows t0,t1,l0..l11; columns x0..x13)
+  1 0 0 0 1 0 0 0 1 0 0 0 0 0
+  0 1 0 0 0 1 0 0 0 1 0 0 0 0
+  0 0 1 0 0 0 0 0 0 0 0 0 0 0
+  0 0 0 1 0 0 0 0 0 0 0 0 0 0
+  0 0 0 0 1 0 0 0 0 0 0 0 0 0
+  0 0 0 0 0 1 0 0 0 0 0 0 0 0
+  0 0 0 0 0 0 1 0 0 0 0 0 0 0
+  0 0 0 0 0 0 0 1 0 0 0 0 0 0
+  0 0 0 0 0 0 0 0 1 0 0 0 0 0
+  0 0 0 0 0 0 0 0 0 1 0 0 0 0
+  0 0 0 0 0 0 0 0 0 0 1 0 0 0
+  0 0 0 0 0 0 0 0 0 0 0 1 0 0
+  0 0 0 0 0 0 0 0 0 0 0 0 1 0
+  0 0 0 0 0 0 0 0 0 0 0 0 0 1
+
+Mp (2 x 2; columns x0..x1)
+  t0   1 0
+  t1   0 1
+
+PASS  input structure
 PASS  target reachable: rank(M)=2, expected 2
 PASS  bijective: rank(F)=14, expected 14
 PASS  natural LA: rank(Mp)=2 and L=[0 I]
@@ -902,15 +945,48 @@ PASS  natural LA: rank(Mp)=2 and L=[0 I]
 Result: valid_natural
 ```
 
-#### map
-
-每个输入地址一行，至少包含：
+如果验证失败，整个失败报告写入标准错误，标准输出为空；不得创建、截断或替换
+`--output` 文件。
+三个数学层次仍分别展示，以便使用者区分失败发生在哪里。以下示例表示 Target
+仍然可达，但 $L$ 中的错误使组合矩阵缺秩，并且 LA 也不再自然：
 
 ```text
-Address  Line address  Byte offset  Target  LA line  LA byte
+Mapping: broken-4-target
+Input: broken-mapping.yaml
+Derived: A=20, G=64, g=6, n=14, N=4, r=2, s=12
+
+PASS  input structure
+PASS  target reachable: rank(M)=2, expected 2
+FAIL  bijective: rank(F)=13, expected 14
+FAIL  natural LA: rank(Mp)=2, but L != [0 I]
+
+Result: invalid_non_bijective
+ERROR [mapping.non_bijective] mapping.l.rows: rank(F)=13, expected 14
 ```
 
-所有地址默认以小写十六进制展示。
+#### map
+
+报告先展示 Mapping 信息和验证分类，再按命令行输入顺序输出地址表。每个输入地址
+恰好对应一行；`Offset` 是原 byte address 的粒度内偏移，`LA byte` 等于
+`G * LA line + Offset`。
+
+例如：
+
+```text
+Mapping: example-4-target
+Input: mapping.yaml
+Result: valid_natural
+
+Address  Line address  Offset  Target  LA line  LA byte
+0x0      0x0           0x0     0       0x0      0x0
+0x40     0x1           0x0     1       0x0      0x0
+0x80     0x2           0x0     2       0x0      0x0
+0xc0     0x3           0x0     3       0x0      0x0
+0x1234   0x48          0x34    0       0x12     0x4b4
+```
+
+所有地址默认使用 canonical lowercase hex：带小写 `0x` 前缀，十六进制数字
+使用小写，除 `0x0` 外没有前导零。
 
 #### run
 
@@ -923,6 +999,45 @@ Address  Line address  Byte offset  Target  LA line  LA byte
 - 每个窗口的 $R_{\mathrm{window}}$、Target、起点和 count；
 - 最长 run 的长度、Target 和起点；
 - Mapping 或场景 warning。
+
+报告开头展示 Mapping 信息和验证分类。每个场景节中的 Target 表按 Target ID
+升序排列，并包含 count 为 0 的 Target；窗口表按有效 `window_sizes` 的声明
+顺序排列。
+
+以下 text 输出与第 6.6 节 JSON 示例表达同一组 `sequential` 分析结果：
+
+```text
+Mapping: example-4-target
+Input: mapping.yaml
+Result: valid_natural
+
+Case: sequential
+Source case: sequential
+Accesses: 4096
+
+Targets
+Target  Count  Share
+0       1024   0.250000
+1       1024   0.250000
+2       1024   0.250000
+3       1024   0.250000
+
+Max load
+Target  Count  Ratio
+0       1024   1.000000
+
+Short-term windows
+Size  Target  Start index  Count  Ratio
+4     1       13           2      2.000000
+16    1       1            5      1.250000
+64    1       193          17     1.062500
+
+Longest run
+Length  Target  Start index
+2       2       31
+
+Warnings: none
+```
 
 所有比率在 text 中保留 6 位小数。
 
@@ -1132,6 +1247,28 @@ JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺�
             "numerator": 8,
             "denominator": 4,
             "decimal": "2.000000"
+          }
+        },
+        {
+          "size": 16,
+          "target": 1,
+          "start_index": 1,
+          "count": 5,
+          "ratio": {
+            "numerator": 20,
+            "denominator": 16,
+            "decimal": "1.250000"
+          }
+        },
+        {
+          "size": 64,
+          "target": 1,
+          "start_index": 193,
+          "count": 17,
+          "ratio": {
+            "numerator": 68,
+            "denominator": 64,
+            "decimal": "1.062500"
           }
         }
       ],
