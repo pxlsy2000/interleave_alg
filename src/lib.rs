@@ -4,7 +4,7 @@ mod app;
 mod cli;
 pub mod error;
 pub mod input;
-mod io;
+pub mod io;
 pub mod issue;
 mod mapping;
 mod metrics;

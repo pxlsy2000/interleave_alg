@@ -1,0 +1,8 @@
+# declaration order and comments must survive the syntax boundary
+schema_version: 1
+name: on
+address:
+  width_bits: 16
+  granule_bytes: 64
+rows: [0, 1]
+enabled: true
