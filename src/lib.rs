@@ -6,7 +6,8 @@ pub mod error;
 pub mod input;
 pub mod io;
 pub mod issue;
-mod mapping;
+/// Strict Mapping schema and domain types.
+pub mod mapping;
 mod metrics;
 mod report;
 mod scenario;

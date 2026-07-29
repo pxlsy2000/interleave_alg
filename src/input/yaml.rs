@@ -213,3 +213,16 @@ fn observed_root(root: &SpannedYamlNode) -> String {
         },
     }
 }
+
+pub(crate) fn canonical_value(node: &SpannedYamlNode) -> String {
+    match node.kind() {
+        SpannedYamlKind::Sequence(_) => "sequence".to_owned(),
+        SpannedYamlKind::Mapping(_) => "mapping".to_owned(),
+        SpannedYamlKind::Scalar(scalar) => match scalar.kind() {
+            ScalarKind::Integer => canonical_integer(scalar.value()),
+            ScalarKind::Boolean => scalar.value().to_ascii_lowercase(),
+            ScalarKind::Null => "null".to_owned(),
+            ScalarKind::String | ScalarKind::Float => canonical_json_string(scalar.value()),
+        },
+    }
+}
