@@ -1552,7 +1552,7 @@ report exceeds v1 limit 268435456 bytes
 analysis could not be completed
 ```
 
-`<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`。其他所有 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。
+`<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`；每个 U+007F 到 U+009F scalar 变为小写 `\u00xx`；U+2028 变为 `\u2028`；U+2029 变为 `\u2029`。其余 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。该规则必须适用于本规格中的每个 canonical JSON string literal，包括 quoted key、path segment、name、lexeme、observed string、compact JSON string array 和 quoted regular expression。
 
 `<canonical-value>` 必须覆盖全部 YAML 1.2 value。sequence 恰好为 `sequence`；mapping 恰好为 `mapping`；resolved integer 是无分组符、无前导零且负数恰好带一个前导 `-` 的 decimal；resolved boolean 或 null 为 `true`、`false` 或 `null`；其他每种 scalar 都必须把 decoded content 按上述 escaping 表示为完整 JSON string literal。最后一类包括 quoted numeric text 以及所有 float 或 non-finite-looking scalar，包括 `1.5`、`.inf` 和 `.nan`。缺失为 `missing`。`<count>` 和 `<A>` 是非负、无分组符的 decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
 
