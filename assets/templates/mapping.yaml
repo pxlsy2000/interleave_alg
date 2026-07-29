@@ -1,0 +1,20 @@
+# Interleave Mapping template (schema v1).
+# XOR tap indices refer to line-address bits x0, x1, ... from least significant upward.
+schema_version: 1
+name: example-4-target
+
+address:
+  width_bits: 20
+  granule_bytes: 64
+
+targets:
+  count: 4
+
+mapping:
+  m:
+    rows:
+      - [0, 4, 8]
+      - [1, 5, 9]
+  l:
+    # preserve_high keeps naturally ordered local-address bits.
+    mode: preserve_high

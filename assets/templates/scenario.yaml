@@ -1,0 +1,38 @@
+# Interleave Scenario template (schema v1).
+# Every effective window size is measured in accesses and must not exceed its test length.
+schema_version: 1
+
+defaults:
+  accesses: 4096
+  window_sizes: [4, 16, 64]
+
+cases:
+  - name: sequential
+    enabled: true
+    kind: stride
+    base_bytes: 0x0
+    stride_bytes: 64
+
+  - name: stride-and-phase-sweep
+    enabled: true
+    kind: sweep
+    base_bytes: [0x0, 0x40, 0x80, 0xc0]
+    stride_bytes: [64, 128, 256]
+    accesses: 4096
+    window_sizes: [4, 16, 64, 256]
+
+  - name: two-master
+    enabled: true
+    kind: multi_stream
+    # round_robin takes one address from each active stream in declaration order.
+    schedule: round_robin
+    window_sizes: [4, 16, 64]
+    streams:
+      - name: master0
+        base_bytes: 0x0
+        stride_bytes: 256
+        accesses: 2048
+      - name: master1
+        base_bytes: 0x40
+        stride_bytes: 256
+        accesses: 2048
