@@ -24,11 +24,14 @@ mod tests {
         let result = command().try_get_matches_from(arguments);
 
         // Then
-        let Err(error) = result else {
-            panic!("the version flag must short-circuit parsing");
-        };
-        assert_eq!(error.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(error.to_string(), "interleave 0.1.0\n");
+        assert!(matches!(
+            result.as_ref(),
+            Err(error) if error.kind() == ErrorKind::DisplayVersion
+        ));
+        assert_eq!(
+            result.err().map(|error| error.to_string()).as_deref(),
+            Some("interleave 0.1.0\n")
+        );
     }
 
     #[test]

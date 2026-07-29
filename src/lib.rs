@@ -2,10 +2,10 @@
 
 mod app;
 mod cli;
-mod error;
-mod input;
+pub mod error;
+pub mod input;
 mod io;
-mod issue;
+pub mod issue;
 mod mapping;
 mod metrics;
 mod report;
