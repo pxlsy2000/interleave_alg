@@ -462,9 +462,23 @@ Validation follows this fixed ladder:
 
 “Read fully” means reaching EOF only within the 16 MiB envelope. One bounded reader is used for regular files, standard input, FIFOs, and device-like named inputs; it retains at most `16 MiB + 1` bytes. An in-envelope source is complete only when EOF is observed. On byte `16 MiB + 1`, the command stops that read immediately, does not read a later input, and reports the size issue before considering malformed UTF-8, a BOM, YAML, or the output destination. Mapping input always precedes Scenario input. For accepted-size snapshots, every input is acquired before output preflight or content parsing; a destination error then exits 1 before content parsing.
 
-After the raw-size check, syntax, encoding, document, and prohibited-YAML failures produce exactly one `input.yaml_parse` issue. Choose the violation with the earliest source byte position across invalid UTF-8 or BOM, scanner/parser syntax, a flow-style root, an explicit tag, an anchor, alias, or merge key, a duplicate or non-string key, and the start of a second document. If failures begin at the same byte, the category order in the preceding sentence breaks the tie; a missing document is positioned at EOF. No later violation is reported.
+After the raw-size check, syntax, encoding, document, and prohibited-YAML failures produce exactly one `input.yaml_parse` issue. Choose the violation with the earliest source byte position. Failures beginning at the same byte use this total priority, from highest to lowest: invalid encoding/BOM; scanner/parser syntax; flow-style root; explicit tag; anchor; alias; merge key; non-string key; duplicate key; second-document start. A non-string key is rejected before duplicate handling, is not inserted into the duplicate-key set, and is never compared for duplicate equality. A missing document is positioned at EOF. No later or lower-priority violation is reported.
 
-For schema decoding, walk each mapping’s present entries in source order. Process an entry recursively, including all independently invalid descendants, before moving to the next present sibling. After all present entries, emit missing required fields in that mapping’s documented field-table order. A missing or wrong-typed parent emits its own issue and suppresses synthetic descendant issues. Array paths are zero-based, for example `cases[2].streams[1].accesses`, `mapping.m.rows[2][1]`, and `addresses[3]`; a command or command-line-option issue uses the empty path `""`.
+For schema decoding, walk each mapping’s present entries in source order. A present field or sequence entry emits at most its first failing constraint under Section 7.2’s order. Recurse into a valid container before moving to the next present sibling; a missing or wrong-typed parent suppresses synthetic descendant issues. After all present entries in a mapping, emit absent required fields in the canonical order below:
+
+- Mapping root: `schema_version`, `name`, `address`, `targets`, `mapping`;
+- `address`: `width_bits`, `granule_bytes`;
+- `targets`: `count`;
+- `mapping`: `m`, `l`;
+- `m`: `rows`;
+- `l`: `mode`, `rows`, where `rows` is required only when `mode` is `explicit`;
+- Scenario root: `schema_version`, `defaults`, `cases`;
+- `defaults`: `accesses`, `window_sizes`;
+- `stride` or `sweep` case: `name`, `enabled`, `kind`, `window_sizes`, `base_bytes`, `stride_bytes`, `accesses`; only `name`, `kind`, `base_bytes`, and `stride_bytes` are intrinsically required, while `accesses` may inherit;
+- `multi_stream` case: `name`, `enabled`, `kind`, `window_sizes`, `schedule`, `streams`;
+- stream: `name`, `base_bytes`, `stride_bytes`, `accesses`.
+
+Optional and conditional fields never produce a missing issue unless their stated condition makes them required. Missing container fields use the container’s own path at its listed position and suppress every descendant. Array paths are zero-based, for example `cases[2].streams[1].accesses`, `mapping.m.rows[2][1]`, and `addresses[3]`; a command or command-line-option issue uses the empty path `""`.
 
 ### 4.2 Mapping File
 
@@ -1520,9 +1534,53 @@ atomic no-clobber rename is unsupported
 analysis could not be completed
 ```
 
-`<quoted-key>`, `<quoted-name>`, and `<quoted-lexeme>` are complete JSON string literals, including the opening and closing double quotes. Their canonical escaping is: `"` becomes `\"`, `\` becomes `\\`, backspace/form-feed/newline/carriage-return/tab become `\b`, `\f`, `\n`, `\r`, `\t`, and every other U+0000 through U+001F scalar becomes lowercase `\u00xx`. Every other Unicode scalar is emitted literally as UTF-8; `/` is not escaped. A string `<canonical-value>` uses the same representation. An integer uses canonical base-10 with no leading zeros, a negative value has exactly one leading `-`, booleans are `true` or `false`, null is `null`, and collections are the literal `sequence` or `mapping`.
+`<quoted-key>`, `<quoted-name>`, and `<quoted-lexeme>` are complete JSON string literals, including the opening and closing double quotes. Their canonical escaping is: `"` becomes `\"`, `\` becomes `\\`, backspace/form-feed/newline/carriage-return/tab become `\b`, `\f`, `\n`, `\r`, `\t`, and every other U+0000 through U+001F scalar becomes lowercase `\u00xx`. Every other Unicode scalar is emitted literally as UTF-8; `/` is not escaped.
 
-`<count>` and `<A>` are non-negative canonical decimal integers. `<canonical>` is the canonical lowercase hexadecimal address from Section 6.3. `<field>` is the exact ASCII field path or stable field identifier named by the validation rule. `<constraint>` and `<reason>` are fixed ASCII phrases defined by that rule and never contain unescaped user input. No placeholder receives locale-dependent formatting or additional quotes.
+`<canonical-value>` is exactly one of: `missing`; a complete JSON string literal using the preceding escaping; an ungrouped decimal integer with no leading zeros and exactly one leading `-` when negative; `true`; `false`; `null`; `sequence`; or `mapping`. `<count>` and `<A>` are non-negative ungrouped decimal integers. `<canonical>` is the canonical lowercase hexadecimal address from Section 6.3. No placeholder receives locale-dependent formatting or additional quotes.
+
+In the `unsupported` message, `<field>` is the exact issue `path` without quoting. For `mapping.unsupported`, it is therefore exactly `targets.count` or `address.granule_bytes`. Inside a conditional constraint, `<field>` is the controlling field’s full zero-based path without quoting. A missing field’s issue path is the missing field’s full path, while the observed `<canonical-value>` is `missing`.
+
+`<constraint>` is finite and must be exactly one of the following forms:
+
+```text
+integer
+boolean
+string
+mapping
+sequence
+plain integer
+plain address
+required field
+non-empty sequence
+power of two
+unique values
+one of <compact-JSON-string-array>
+integer in [<min>,<max>]
+integer <= <max>
+sequence length <n>
+string matching <quoted-regex>
+non-empty string without control or line-separator characters
+field absent when <field>=<canonical-value>
+field present when <field>=<canonical-value>
+at most <n> raw bytes
+at most <n> query addresses
+sum(Q*K) <= 100000000
+```
+
+All numbers substituted into a constraint are ungrouped decimal. `<compact-JSON-string-array>` has no spaces and uses the canonical JSON string form for every element, for example `["preserve_high","explicit"]`, `["stride","sweep","multi_stream"]`, or `["round_robin"]`. `<quoted-regex>` is a complete canonical JSON string literal, for example `"[A-Za-z0-9][A-Za-z0-9._-]*"`.
+
+For each present field or sequence entry, consider only the constraints applicable to its field definition and evaluate them in the order shown in the finite list above; emit only the first failure. Missing intrinsically required fields use `required field`; a conditionally forbidden or required field uses `field absent when ...` or `field present when ...`. For $G$ and $N$, scalar form is followed by `power of two`, the intrinsic upper relation, and then the v1 support cap. Sequence elements are processed in source order after their container’s own applicable constraints.
+
+`<reason>` is finite and must be exactly one of:
+
+```text
+target count is not a power of two
+granule size is not a power of two
+target count exceeds v1 limit 65536
+granule size exceeds v1 limit 4503599627370496
+```
+
+The two target-count reasons always use `<field>` `targets.count`; the two granule-size reasons always use `<field>` `address.granule_bytes`. If more than one reason applies to one field, the order in the reason list above selects the first. No constraint or reason contains user-supplied text.
 
 Malformed YAML syntax and each prohibited syntax/document form compete under Section 4.1’s earliest-byte rule and produce one `input.yaml_parse`. Duplicate-key and document-count winners use their specific templates above; other syntax/document winners use `invalid YAML syntax`. Unknown fields use `input.unknown_field` and the `unknown field` template. Exact field/range errors use the `expected` template, while v1 support-cap errors use the `unsupported` template.
 

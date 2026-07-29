@@ -462,9 +462,23 @@ hex:     0x[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)*
 
 “完整读取”只表示在 16 MiB envelope 内读到 EOF。普通文件、标准输入、FIFO 和 device-like 命名输入都使用同一个 bounded reader，最多保留 `16 MiB + 1` byte。只有观察到 EOF 时，处于限制以内的来源才算完整。读到第 `16 MiB + 1` 个 byte 时，命令立即停止本次读取，不再读取后续输入，并在考虑畸形 UTF-8、BOM、YAML 或输出目的地之前报告 size issue。Mapping 输入始终先于 Scenario 输入。对于大小合格的 snapshot，输出预检或内容解析前必须先取得全部输入；此后目的地错误在内容解析前以退出码 1 结束。
 
-原始大小检查之后，语法、编码、document 和 prohibited-YAML 失败恰好产生一个 `input.yaml_parse` issue。在无效 UTF-8 或 BOM、scanner/parser 语法、flow-style root、explicit tag、anchor、alias 或 merge key、重复或非 string key，以及第二个 document 起点之间，选择来源 byte position 最早的 violation。如果多个失败从同一 byte 开始，则按前一句列出的 category 顺序打破并列；缺失 document 的位置定义为 EOF。不得报告更晚的 violation。
+原始大小检查之后，语法、编码、document 和 prohibited-YAML 失败恰好产生一个 `input.yaml_parse` issue。选择来源 byte position 最早的 violation。同一 byte 开始的失败使用以下从高到低的总优先级：invalid encoding/BOM；scanner/parser syntax；flow-style root；explicit tag；anchor；alias；merge key；non-string key；duplicate key；second-document start。non-string key 在 duplicate 处理之前被拒绝，不加入 duplicate-key set，也绝不执行 duplicate equality 比较。缺失 document 的位置定义为 EOF。不得报告更晚或优先级更低的 violation。
 
-schema 解码时，在每个 mapping 中按来源顺序遍历已经出现的 entry。一个 entry 必须递归处理完毕，包括全部相互独立的无效 descendant，然后才移动到下一个已出现 sibling。处理完全部已出现 entry 后，按该 mapping 文档化 field table 的顺序产生缺失 required field。缺失或类型错误的 parent 只产生自身 issue，并抑制虚构的 descendant issue。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
+schema 解码时，在每个 mapping 中按来源顺序遍历已经出现的 entry。一个已出现 field 或 sequence entry 最多产生第 7.2 节顺序中的首个 failing constraint。有效 container 必须递归处理完毕，然后才移动到下一个已出现 sibling；缺失或类型错误的 parent 抑制虚构的 descendant issue。处理完 mapping 中全部已出现 entry 后，按以下 canonical order 产生缺失 required field：
+
+- Mapping root：`schema_version`、`name`、`address`、`targets`、`mapping`；
+- `address`：`width_bits`、`granule_bytes`；
+- `targets`：`count`；
+- `mapping`：`m`、`l`；
+- `m`：`rows`；
+- `l`：`mode`、`rows`，其中 `rows` 只在 `mode` 为 `explicit` 时 required；
+- Scenario root：`schema_version`、`defaults`、`cases`；
+- `defaults`：`accesses`、`window_sizes`；
+- `stride` 或 `sweep` case：`name`、`enabled`、`kind`、`window_sizes`、`base_bytes`、`stride_bytes`、`accesses`；只有 `name`、`kind`、`base_bytes` 和 `stride_bytes` intrinsically required，`accesses` 可以继承；
+- `multi_stream` case：`name`、`enabled`、`kind`、`window_sizes`、`schedule`、`streams`；
+- stream：`name`、`base_bytes`、`stride_bytes`、`accesses`。
+
+optional 和 conditional field 绝不产生 missing issue，除非其 stated condition 使其 required。缺失 container field 在其列出位置使用 container 自身 path，并抑制全部 descendant。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
 
 ### 4.2 Mapping 文件
 
@@ -1530,9 +1544,53 @@ atomic no-clobber rename is unsupported
 analysis could not be completed
 ```
 
-`<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`。其他所有 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。string `<canonical-value>` 使用同一 representation。integer 使用无前导零的 canonical base-10；负数恰好带一个前导 `-`；boolean 为 `true` 或 `false`；null 为 `null`；collection 使用 literal `sequence` 或 `mapping`。
+`<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`。其他所有 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。
 
-`<count>` 和 `<A>` 是非负 canonical decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。`<field>` 是 validation rule 指定的精确 ASCII field path 或 stable field identifier。`<constraint>` 和 `<reason>` 是该 rule 定义的固定 ASCII phrase，绝不包含未转义的用户输入。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
+`<canonical-value>` 恰好是以下之一：`missing`；使用上述 escaping 的完整 JSON string literal；无分组符、无前导零且负数恰好带一个前导 `-` 的 decimal integer；`true`；`false`；`null`；`sequence`；或 `mapping`。`<count>` 和 `<A>` 是非负、无分组符的 decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
+
+在 `unsupported` message 中，`<field>` 是不带引号的精确 issue `path`。因此对于 `mapping.unsupported`，它恰好是 `targets.count` 或 `address.granule_bytes`。在 conditional constraint 中，`<field>` 是不带引号、使用从零开始语法的 controlling field 完整 path。缺失字段的 issue path 是该缺失字段的完整 path，observed `<canonical-value>` 为 `missing`。
+
+`<constraint>` 是有限词汇，必须恰好为以下形式之一：
+
+```text
+integer
+boolean
+string
+mapping
+sequence
+plain integer
+plain address
+required field
+non-empty sequence
+power of two
+unique values
+one of <compact-JSON-string-array>
+integer in [<min>,<max>]
+integer <= <max>
+sequence length <n>
+string matching <quoted-regex>
+non-empty string without control or line-separator characters
+field absent when <field>=<canonical-value>
+field present when <field>=<canonical-value>
+at most <n> raw bytes
+at most <n> query addresses
+sum(Q*K) <= 100000000
+```
+
+constraint 中代入的所有数字都使用无分组符 decimal。`<compact-JSON-string-array>` 不含空格，每个元素都使用 canonical JSON string 形式，例如 `["preserve_high","explicit"]`、`["stride","sweep","multi_stream"]` 或 `["round_robin"]`。`<quoted-regex>` 是完整 canonical JSON string literal，例如 `"[A-Za-z0-9][A-Za-z0-9._-]*"`。
+
+对每个已出现 field 或 sequence entry，只考虑其 field definition 适用的 constraint，并按上述有限列表顺序求值；只产生首个 failure。intrinsically required field 缺失时使用 `required field`；conditionally forbidden 或 required field 使用 `field absent when ...` 或 `field present when ...`。对于 $G$ 和 $N$，scalar form 之后依次检查 `power of two`、intrinsic upper relation 和 v1 support cap。container 自身适用的 constraint 通过后，才按来源顺序处理 sequence element。
+
+`<reason>` 是有限词汇，必须恰好为以下之一：
+
+```text
+target count is not a power of two
+granule size is not a power of two
+target count exceeds v1 limit 65536
+granule size exceeds v1 limit 4503599627370496
+```
+
+两个 target-count reason 的 `<field>` 始终为 `targets.count`；两个 granule-size reason 的 `<field>` 始终为 `address.granule_bytes`。如果一个 field 同时适用多个 reason，则按上述 reason list 顺序选择首个。constraint 或 reason 都不包含用户提供的 text。
 
 畸形 YAML 语法以及每种 prohibited syntax/document form 按第 4.1 节的 earliest-byte 规则竞争，并且只产生一个 `input.yaml_parse`。重复 key 和 document 数量 winner 使用上面的专用 template；其他 syntax/document winner 使用 `invalid YAML syntax`。未知字段使用 `input.unknown_field` 和 `unknown field` template。精确字段/范围错误使用 `expected` template，v1 support-cap 错误使用 `unsupported` template。
 
