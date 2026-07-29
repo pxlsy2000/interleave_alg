@@ -388,6 +388,7 @@ v1 只接受处于以下闭区间限制内的工作量：
 | 资源 | 限制 |
 | --- | --- |
 | 每个 Mapping 或 Scenario 来源的原始字节数，无论来自文件还是标准输入 | `16 MiB` |
+| escape decoding 后每个 decoded YAML scalar key 或 value 的 UTF-8 byte 数 | `128` |
 | 一条 `map` 命令的地址操作数 | `1,000,000` |
 | `targets.count`（$N$） | `65,536` |
 | `address.granule_bytes`（$G$） | $2^{52}$ |
@@ -404,7 +405,7 @@ v1 只接受处于以下闭区间限制内的工作量：
 
 预检使用的每个乘积、求和、$2^A$ 边界、sweep 基数、stream 总数和末地址表达式，都必须先用 checked `u128` 算术求值，再进行已经证明安全的窄化。checked 算术失败与超出相应边界属于同一种确定的限制失败；绝不允许回绕、截断或开始部分分析。
 
-Mapping 限制失败使用 `mapping.unsupported`，退出码为 2。Scenario 或展开后的 run 限制失败使用 `scenario.invalid`，退出码为 3。name-length failure 必须使用所属 schema code。原始输入过大使用 `input.invalid_value`：Mapping 来源退出 2，Scenario 来源退出 3。`map` 操作数超限也使用 `input.invalid_value`，退出码为 3。rendered-report limit violation 必须使用 `output.too_large` 并退出 1。只有在所有适用的输入、范围、地址、资源和 rendered-size gate 都通过后发生的意外失败，才使用 `analysis.failed` 并退出 4。
+Mapping 限制失败使用 `mapping.unsupported`，退出码为 2。Scenario 或展开后的 run 限制失败使用 `scenario.invalid`，退出码为 3。name-length failure 必须使用所属 schema code。原始输入或 decoded YAML scalar 过大时使用 `input.invalid_value`：Mapping 来源退出 2，Scenario 来源退出 3。`map` 操作数超限也使用 `input.invalid_value`，退出码为 3。rendered-report limit violation 必须使用 `output.too_large` 并退出 1。只有在所有适用的输入、范围、地址、资源和 rendered-size gate 都通过后发生的意外失败，才使用 `analysis.failed` 并退出 4。
 
 这些限制属于输入/输出契约，不是尽力而为的目标。处于所有适用限制以内的输入和报告必须确定完成，除非发生 I/O 失败或报告上述限制以内的异常 `analysis.failed`。不得输出部分 Mapping 查询、具体测试或报告。
 
@@ -425,7 +426,9 @@ v1 只接受 YAML 1.2 配置文件：
 
 只允许在来源最开头的三个字节出现一次 UTF-8 BOM。UTF-16 和 UTF-32 BOM、第二个 BOM，以及 byte zero 之后任意位置的 U+FEFF 都必须拒绝。YAML anchor、alias、merge key、所有显式 tag、重复 key、非 string mapping key、多 document 和未知字段都必须拒绝。key 区分大小写，`schema_version` 必须为整数 `1`。
 
-scalar 解析遵循 YAML 1.2。特别地，plain `yes` 和 `on` 是 string：用于 `name` 等 string 字段时有效，用于 `enabled` 等 boolean 字段时属于类型错误。只有 plain `true` 和 `false` 满足 boolean 字段类型。
+plain-scalar resolution 必须使用 YAML 1.2 Core first-match order：null；所有 Core boolean case variant；signed decimal integer `[-+]?[0-9]+`；unsigned octal integer `0o[0-7]+`；unsigned hexadecimal integer `0x[0-9A-Fa-f]+`；三种 Core float form；最后是 string。因此 plain `yes` 和 `on` 是 string：用于 `name` 等 string 字段时有效，用于 `enabled` 等 boolean 字段时属于类型错误。
+
+resolved Core kind 与 typed generic-integer 或 address decoder 随后应用的更严格 v1 lexeme grammar 相互独立。必须保留 original scalar style 和 text 供该后续检查使用。Core integer observation 必须使用其精确 mathematical value 的无分组 base-10：`01` 变为 `1`，`-01` 变为 `-1`，`+01` 变为 `1`，`0o10` 变为 `8`，`0x10` 变为 `16`，negative zero 的每种拼写都变为 `0`。signed octal 和 hexadecimal text 不是 Core integer：`+0x10`、`-0x10`、`+0o10` 和 `-0o10` 是 Core string，observed value 分别为 canonical JSON string `"+0x10"`、`"-0x10"`、`"+0o10"` 和 `"-0o10"`。Core resolution 不会使 lexeme 对 v1 typed field 有效；下文精确的 generic-integer 和 address grammar 仍具有最终约束力。
 
 以 plain YAML scalar 表示的地址字段以及每个命令行地址操作数，只接受以下 lexeme：
 
@@ -450,21 +453,24 @@ hex:     0x[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)*
 2. 按命令顺序 bounded-read 每个输入，直到 EOF 或读到第 `16 MiB + 1` 个 byte；
 3. 读到第 `16 MiB + 1` 个 byte 时立即停止读取，在检查 UTF-8 或 YAML 之前拒绝该来源；
 4. 预检输出目的地；
-5. 验证 UTF-8 和 YAML 语法/document 规则；
-6. 解码并验证整个 document schema，包括未选中的 Scenario case；
-7. 验证 Mapping scalar、关系和 v1 cap；
-8. 验证矩阵尺寸和 tap；
-9. 计算全部三个数学检查；
-10. 选择 Scenario case；
-11. 解析继承，并验证已选 case 的语义；
-12. 预检 checked 展开、资源以及每个查询或生成地址；
-13. 执行分析；
-14. 渲染完整报告；
-15. 原子提交文件输出。
+5. 验证 UTF-8，并选择 winning YAML syntax、document 或 prohibited-form failure；
+6. 对每个 decoded scalar key 和 value 强制执行 128-byte bound；
+7. 解码并验证整个 document schema，包括未选中的 Scenario case；
+8. 验证 Mapping scalar、关系和 v1 cap；
+9. 验证矩阵尺寸和 tap；
+10. 计算全部三个数学检查；
+11. 选择 Scenario case；
+12. 解析继承，并验证已选 case 的语义；
+13. 预检 checked 展开、资源以及每个查询或生成地址；
+14. 执行分析；
+15. 渲染完整报告；
+16. 原子提交文件输出。
 
 “完整读取”只表示在 16 MiB envelope 内读到 EOF。普通文件、标准输入、FIFO 和 device-like 命名输入都使用同一个 bounded reader，最多保留 `16 MiB + 1` byte。只有观察到 EOF 时，处于限制以内的来源才算完整。读到第 `16 MiB + 1` 个 byte 时，命令立即停止本次读取，不再读取后续输入，并在考虑畸形 UTF-8、BOM、YAML 或输出目的地之前报告 size issue。Mapping 输入始终先于 Scenario 输入。对于大小合格的 snapshot，输出预检或内容解析前必须先取得全部输入；此后目的地错误在内容解析前以退出码 1 结束。
 
 原始大小检查之后，语法、编码、document 和 prohibited-YAML 失败恰好产生一个 `input.yaml_parse` issue。选择来源 byte position 最早的 violation。同一 byte 开始的失败使用以下从高到低的总优先级：invalid encoding/BOM；scanner/parser syntax；flow-style root；explicit tag；anchor；alias；merge key；non-string key；duplicate key；second-document start。non-string key 在 duplicate 处理之前被拒绝，不加入 duplicate-key set，也绝不执行 duplicate equality 比较。缺失 document 的位置定义为 EOF。不得报告更晚或优先级更低的 violation。
+
+只有上述 UTF-8/YAML selection 成功后，才能按 source byte position 遍历每个 decoded scalar key 和 value。quoted escape decoding 后的 decoded content 最多只能包含 128 UTF-8 byte。第一个 overlong scalar 必须恰好产生一个 `input.invalid_value`，path `""`，message `expected UTF-8 byte length <= 128, observed <actual-byte-count>`；Mapping source 退出 2，Scenario source 退出 3；不得开始 schema decoding。prohibited YAML form（包括 non-string 或 duplicate key）即使与 overlong scalar 重合，也必须保留更早的 `input.yaml_parse` precedence。该 bound 不会拒绝任何其他方面有效的 v1 field：每个有效 name 已有相同 bound，每个有效 numeric 或 address lexeme 都更短。它也约束上述精确 Core-integer canonicalization 的工作量。
 
 schema 解码时，在每个 mapping 中按来源顺序遍历已经出现的 entry。一个已出现 field 或 sequence entry 最多产生第 7.2 节顺序中的首个 failing constraint。有效 container 必须递归处理完毕，然后才移动到下一个已出现 sibling；缺失或类型错误的 parent 抑制虚构的 descendant issue。处理完 mapping 中全部已出现 entry 后，按以下 canonical order 产生缺失 required field：
 
@@ -1623,6 +1629,7 @@ YAML 与 common input emitter：
 | 第二次 occurrence 的 encoded full path | earliest byte，priority 9；使用第二次 occurrence 的 source position | duplicate string key | `input.yaml_parse` | `duplicate key <quoted-key>` | — | quoted raw duplicate key |
 | source，`""` | earliest byte，priority 10 | 第二个或后续 document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | document count |
 | source，`""` | EOF position | 无 document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | `0` |
+| source，`""` | 全部 UTF-8/YAML syntax、document 与 prohibited-form gate 之后；按 source byte position 取第一个 | decoded scalar key 或 value 超过 128 UTF-8 byte | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `UTF-8 byte length <= 128` | actual UTF-8 byte count |
 | unrecognized key 的精确 encoded full path | YAML gate 后，按 containing mapping 来源顺序 | key 不在 allowed set | `input.unknown_field` | `unknown field <quoted-key>` | — | quoted raw key |
 
 Mapping schema emitter：
@@ -1788,6 +1795,11 @@ Linux `x86_64-unknown-linux-gnu` 是 v1 文件系统 baseline。输入和输出 
 | 64-bit 地址计算产生中间进位 | 先按数学整数检查，不能截断或回绕 |
 | base 或 stride 未按粒度对齐 | 合法，byte offset 按实际地址计算 |
 | `stride_bytes = 0` | 合法，表示重复访问同一地址 |
+| decoded scalar key 或 value 恰好为 128 UTF-8 byte | 通过 decoded-scalar bound；仍须应用后续 schema rule |
+| plain 或 quoted-escape-decoded scalar key 或 value 为 129 UTF-8 byte | 按 source byte position 最早者在 path `""` 恰好产生一个 `input.invalid_value`，message 为 `expected UTF-8 byte length <= 128, observed 129`；Mapping 退出 2，Scenario 退出 3 |
+| prohibited YAML form 与 overlong decoded scalar 同时出现 | prohibited form 以 `input.yaml_parse` 获胜；抑制 scalar-bound issue |
+| plain `01`、`-01`、`+01`、`0o10` 和 `0x10` | Core integer 的 observed base-10 value 依次为 `1`、`-1`、`1`、`8` 和 `16`；typed v1 field 仍应用自己的 lexeme grammar |
+| plain `+0x10`、`-0x10`、`+0o10` 和 `-0o10` | Core string 的 observed value 依次为 `"+0x10"`、`"-0x10"`、`"+0o10"` 和 `"-0o10"`；typed v1 field 仍应用自己的 type 与 lexeme gate |
 
 ### 8.3 Scenario
 
@@ -1835,6 +1847,8 @@ Linux `x86_64-unknown-linux-gnu` 是 v1 文件系统 baseline。输入和输出 
 
 - 两类 template 输出均可直接被对应命令读取；
 - Mapping 和 Scenario 的未知字段、重复字段和错误类型不会被静默忽略；
+- decoded scalar key/value 覆盖恰好 128 byte 与 129 byte 的 plain/quoted-escape case、first-source-position selection、prohibited-YAML precedence，以及 Mapping/Scenario exit code；
+- Core first-match 测试覆盖 `01`、`-01`、`+01`、unsigned `0o`/`0x`、signed octal/hexadecimal string、base-10 observation，以及相互独立的 typed-v1 lexeme gate；
 - `validate`、`map`、`run` 的选项、选择顺序和退出码符合第 5、7 章；
 - 所有 corner case 的行为符合第 8 章；
 - 任何失败都不会留下部分查询、部分场景或截断输出文件。

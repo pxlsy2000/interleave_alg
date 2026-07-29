@@ -388,6 +388,7 @@ v1 accepts work only within the following inclusive limits:
 | Resource | Limit |
 | --- | --- |
 | Raw bytes in each Mapping or Scenario source, whether a file or standard input | `16 MiB` |
+| UTF-8 bytes in each decoded YAML scalar key or value after escape decoding | `128` |
 | Address operands in one `map` command | `1,000,000` |
 | `targets.count` ($N$) | `65,536` |
 | `address.granule_bytes` ($G$) | $2^{52}$ |
@@ -404,7 +405,7 @@ v1 accepts work only within the following inclusive limits:
 
 Every product, sum, $2^A$ bound, sweep cardinality, stream total, and last-address expression used in preflight is evaluated with checked `u128` arithmetic before any proven narrowing. A checked-arithmetic failure is the same deterministic limit failure as exceeding the corresponding bound; it is never allowed to wrap, truncate, or begin partial analysis.
 
-A Mapping limit violation is `mapping.unsupported` and exits 2. A Scenario or expanded-run limit violation is `scenario.invalid` and exits 3. Name-length failures use the owning schema code. An oversized raw input uses `input.invalid_value`, with exit 2 for a Mapping source and exit 3 for a Scenario source. Exceeding the `map` operand count also uses `input.invalid_value` and exits 3. A rendered-report limit violation uses `output.too_large` and exits 1. Only an unexpected failure after every applicable input, range, address, resource, and rendered-size gate has passed uses `analysis.failed` and exits 4.
+A Mapping limit violation is `mapping.unsupported` and exits 2. A Scenario or expanded-run limit violation is `scenario.invalid` and exits 3. Name-length failures use the owning schema code. An oversized raw input or decoded YAML scalar uses `input.invalid_value`, with exit 2 for a Mapping source and exit 3 for a Scenario source. Exceeding the `map` operand count also uses `input.invalid_value` and exits 3. A rendered-report limit violation uses `output.too_large` and exits 1. Only an unexpected failure after every applicable input, range, address, resource, and rendered-size gate has passed uses `analysis.failed` and exits 4.
 
 These limits are part of the input/output contract, not best-effort targets. Inputs and reports at or below every applicable limit complete deterministically unless an I/O failure occurs or the below-limit exceptional `analysis.failed` condition is reported. No partial Mapping query, concrete test, or report is emitted.
 
@@ -425,7 +426,9 @@ Each source must be UTF-8 and contain exactly one YAML document whose root is a 
 
 One UTF-8 BOM is accepted only as the first three bytes of a source. UTF-16 and UTF-32 BOMs are rejected, as are a second BOM and U+FEFF anywhere after byte zero. YAML anchors, aliases, merge keys, every explicit tag, duplicate keys, non-string mapping keys, multiple documents, and unknown fields are rejected. Keys are case-sensitive, and `schema_version` must be the integer `1`.
 
-Scalar resolution follows YAML 1.2. In particular, plain `yes` and `on` are strings: they are valid in a string field such as `name`, but are type errors in a boolean field such as `enabled`. Only plain `true` and `false` satisfy a boolean field.
+Plain-scalar resolution uses first-match YAML 1.2 Core order: null; every Core boolean case variant; signed decimal integer `[-+]?[0-9]+`; unsigned octal integer `0o[0-7]+`; unsigned hexadecimal integer `0x[0-9A-Fa-f]+`; the three Core float forms; then string. Thus plain `yes` and `on` are strings: they are valid in a string field such as `name`, but are type errors in a boolean field such as `enabled`.
+
+The resolved Core kind is independent of the stricter v1 lexeme grammar applied later by a typed generic-integer or address decoder. Original scalar style and text are preserved for that later check. Core integer observation uses the exact mathematical value in ungrouped base-10: `01` becomes `1`, `-01` becomes `-1`, `+01` becomes `1`, `0o10` becomes `8`, `0x10` becomes `16`, and every spelling of negative zero becomes `0`. Signed octal and hexadecimal text is not a Core integer: `+0x10`, `-0x10`, `+0o10`, and `-0o10` are Core strings and are observed as the canonical JSON strings `"+0x10"`, `"-0x10"`, `"+0o10"`, and `"-0o10"`. Core resolution does not make a lexeme valid for a v1 typed field; the exact generic-integer and address grammars below remain authoritative.
 
 An address field represented by a plain YAML scalar, and every command-line address operand, accepts exactly one of these lexemes:
 
@@ -450,21 +453,24 @@ Validation follows this fixed ladder:
 2. bounded-read each input in command order until EOF or byte `16 MiB + 1`;
 3. on byte `16 MiB + 1`, stop reading immediately and reject the source before UTF-8 or YAML inspection;
 4. preflight the output destination;
-5. validate UTF-8 and YAML syntax/document rules;
-6. decode and validate the whole document schema, including unselected Scenario cases;
-7. validate Mapping scalars, relationships, and v1 caps;
-8. validate matrix dimensions and taps;
-9. calculate all three mathematical checks;
-10. select Scenario cases;
-11. resolve inheritance and validate semantics for selected cases;
-12. preflight checked expansion, resources, and every query or generated address;
-13. perform analysis;
-14. render the complete report;
-15. atomically commit file output.
+5. validate UTF-8 and select the winning YAML syntax, document, or prohibited-form failure;
+6. enforce the 128-byte bound on every decoded scalar key and value;
+7. decode and validate the whole document schema, including unselected Scenario cases;
+8. validate Mapping scalars, relationships, and v1 caps;
+9. validate matrix dimensions and taps;
+10. calculate all three mathematical checks;
+11. select Scenario cases;
+12. resolve inheritance and validate semantics for selected cases;
+13. preflight checked expansion, resources, and every query or generated address;
+14. perform analysis;
+15. render the complete report;
+16. atomically commit file output.
 
 “Read fully” means reaching EOF only within the 16 MiB envelope. One bounded reader is used for regular files, standard input, FIFOs, and device-like named inputs; it retains at most `16 MiB + 1` bytes. An in-envelope source is complete only when EOF is observed. On byte `16 MiB + 1`, the command stops that read immediately, does not read a later input, and reports the size issue before considering malformed UTF-8, a BOM, YAML, or the output destination. Mapping input always precedes Scenario input. For accepted-size snapshots, every input is acquired before output preflight or content parsing; a destination error then exits 1 before content parsing.
 
 After the raw-size check, syntax, encoding, document, and prohibited-YAML failures produce exactly one `input.yaml_parse` issue. Choose the violation with the earliest source byte position. Failures beginning at the same byte use this total priority, from highest to lowest: invalid encoding/BOM; scanner/parser syntax; flow-style root; explicit tag; anchor; alias; merge key; non-string key; duplicate key; second-document start. A non-string key is rejected before duplicate handling, is not inserted into the duplicate-key set, and is never compared for duplicate equality. A missing document is positioned at EOF. No later or lower-priority violation is reported.
+
+Only after that UTF-8/YAML selection succeeds, walk every decoded scalar key and value by source byte position. Decoded content, after quoted escape decoding, must contain at most 128 UTF-8 bytes. The first overlong scalar emits exactly one `input.invalid_value`, path `""`, message `expected UTF-8 byte length <= 128, observed <actual-byte-count>`, and exits 2 for a Mapping source or 3 for a Scenario source; schema decoding does not begin. A prohibited YAML form, including a non-string or duplicate key, retains `input.yaml_parse` precedence even when the same scalar is overlong. This bound rejects no otherwise-valid v1 field: every valid name has the same bound, and every valid numeric or address lexeme is shorter. It also bounds the exact Core-integer canonicalization described above.
 
 For schema decoding, walk each mapping’s present entries in source order. A present field or sequence entry emits at most its first failing constraint under Section 7.2’s order. Recurse into a valid container before moving to the next present sibling; a missing or wrong-typed parent suppresses synthetic descendant issues. After all present entries in a mapping, emit absent required fields in the canonical order below:
 
@@ -1613,6 +1619,7 @@ YAML and common input emitters:
 | second occurrence’s encoded full path | earliest byte, priority 9; use second occurrence’s source position | duplicate string key | `input.yaml_parse` | `duplicate key <quoted-key>` | — | quoted raw duplicate key |
 | source, `""` | earliest byte, priority 10 | second or later document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | document count |
 | source, `""` | EOF position | no document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | `0` |
+| source, `""` | after all UTF-8/YAML syntax, document, and prohibited-form gates; first source byte position | decoded scalar key or value exceeds 128 UTF-8 bytes | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `UTF-8 byte length <= 128` | actual UTF-8 byte count |
 | exact encoded full path of an unrecognized key | YAML gates, then containing mapping in source order | key is outside the allowed set | `input.unknown_field` | `unknown field <quoted-key>` | — | quoted raw key |
 
 Mapping schema emitters:
@@ -1778,6 +1785,11 @@ New files receive the temporary file's `0666 & umask` mode. Replacement does not
 | A 64-bit address calculation produces an intermediate carry | Check using mathematical integers before narrowing; do not truncate or wrap |
 | Base or stride is not aligned to the granule | Valid; calculate the byte offset from the actual address |
 | `stride_bytes = 0` | Valid; repeatedly accesses the same address |
+| A decoded scalar key or value is exactly 128 UTF-8 bytes | Pass the decoded-scalar bound; later schema rules still apply |
+| A plain or quoted-escape-decoded scalar key or value is 129 UTF-8 bytes | The earliest by source byte position emits exactly one `input.invalid_value` at path `""` with `expected UTF-8 byte length <= 128, observed 129`; exit 2 for Mapping or 3 for Scenario |
+| A prohibited YAML form and an overlong decoded scalar occur together | The prohibited form wins as `input.yaml_parse`; the scalar-bound issue is suppressed |
+| Plain `01`, `-01`, `+01`, `0o10`, and `0x10` | Core integers observed as base-10 `1`, `-1`, `1`, `8`, and `16`; a typed v1 field still applies its own lexeme grammar |
+| Plain `+0x10`, `-0x10`, `+0o10`, and `-0o10` | Core strings observed as `"+0x10"`, `"-0x10"`, `"+0o10"`, and `"-0o10"`; a typed v1 field still applies its own type and lexeme gates |
 
 ### 8.3 Scenario
 
@@ -1825,6 +1837,8 @@ New files receive the temporary file's `0666 & umask` mode. Replacement does not
 
 - both template types produce output that the corresponding command can read directly;
 - unknown fields, duplicate fields, and incorrect types in Mapping and Scenario files are never silently ignored;
+- decoded scalar keys and values cover exact-128 and 129-byte plain and quoted-escape cases, first-source-position selection, prohibited-YAML precedence, and Mapping/Scenario exit codes;
+- Core first-match tests cover `01`, `-01`, `+01`, unsigned `0o`/`0x`, signed octal/hexadecimal strings, base-10 observation, and the independent typed-v1 lexeme gates;
 - the options, selection order, and exit codes of `validate`, `map`, and `run` conform to Chapters 5 and 7;
 - all corner cases behave as defined in Chapter 8;
 - no failure leaves partial queries, partial scenarios, or a truncated output file.
