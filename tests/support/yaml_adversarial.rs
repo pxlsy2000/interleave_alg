@@ -129,17 +129,22 @@ fn non_string_keys_never_enter_duplicate_comparison() -> TestResult {
 }
 
 #[test]
-fn explicit_empty_document_is_one_document_and_three_documents_count_exactly() -> TestResult {
+fn explicit_empty_document_fails_root_gate_and_three_documents_count_exactly() -> TestResult {
     // Given
     let empty_document = b"---\n";
     let three_documents = b"---\na: 1\n---\nb: 2\n---\nc: 3\n";
 
     // When
-    let accepted = load_yaml_bytes(empty_document);
+    let empty_error = yaml_error(empty_document)?;
     let rejected = yaml_error(three_documents)?;
 
     // Then
-    assert!(accepted.is_ok());
+    assert_eq!(empty_error.issue().code(), IssueCode::InputInvalidValue);
+    assert_eq!(empty_error.issue().path().as_str(), "");
+    assert_eq!(
+        empty_error.issue().message(),
+        "expected mapping, observed null"
+    );
     assert_eq!(
         rejected.issue().message(),
         "expected exactly one YAML document, found 3"

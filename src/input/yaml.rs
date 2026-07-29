@@ -1,6 +1,7 @@
 //! Strict YAML 1.2 ingestion after bounded source acquisition.
 
 mod build;
+mod core;
 mod decode;
 mod diagnostic;
 mod events;
@@ -17,7 +18,7 @@ use thiserror::Error;
 
 use crate::{
     input::{InputReadError, InputSnapshot, read_bounded, read_named},
-    issue::Issue,
+    issue::{Issue, IssueCode, IssuePath, canonical_json_string},
 };
 
 pub use tree::{
@@ -41,6 +42,14 @@ pub enum InputLoadError {
         /// Earliest winning source position.
         position: SourcePosition,
     },
+    /// The parsed document does not have the required root shape.
+    #[error("YAML input has an invalid root value")]
+    Schema {
+        /// Stable schema issue.
+        issue: Issue,
+        /// Source position of the root value.
+        position: SourcePosition,
+    },
 }
 
 impl InputLoadError {
@@ -48,7 +57,7 @@ impl InputLoadError {
     pub const fn issue(&self) -> &Issue {
         match self {
             Self::Read(error) => error.issue(),
-            Self::Yaml { issue, .. } => issue,
+            Self::Yaml { issue, .. } | Self::Schema { issue, .. } => issue,
         }
     }
 
@@ -56,7 +65,7 @@ impl InputLoadError {
     pub const fn position(&self) -> Option<SourcePosition> {
         match self {
             Self::Read(_) => None,
-            Self::Yaml { position, .. } => Some(*position),
+            Self::Yaml { position, .. } | Self::Schema { position, .. } => Some(*position),
         }
     }
 
@@ -64,7 +73,7 @@ impl InputLoadError {
     pub const fn observed_raw_bytes(&self) -> Option<usize> {
         match self {
             Self::Read(error) => error.observed_raw_bytes(),
-            Self::Yaml { .. } => None,
+            Self::Yaml { .. } | Self::Schema { .. } => None,
         }
     }
 }
@@ -111,12 +120,17 @@ pub fn parse_yaml(snapshot: &InputSnapshot) -> Result<SpannedYamlDocument, Input
             snapshot.bytes().len(),
         ))));
     }
-    root.map(SpannedYamlDocument::new).ok_or_else(|| {
+    let root = root.ok_or_else(|| {
         yaml_error(&YamlParseError::no_document(eof_position(
             decoded.text,
             snapshot.bytes().len(),
         )))
-    })
+    })?;
+    if matches!(root.kind(), SpannedYamlKind::Mapping(_)) {
+        Ok(SpannedYamlDocument::new(root))
+    } else {
+        Err(root_schema_error(&root))
+    }
 }
 
 fn has_document_content(source: &str) -> bool {
@@ -138,5 +152,30 @@ fn yaml_error(error: &YamlParseError) -> InputLoadError {
     InputLoadError::Yaml {
         issue: error.issue().clone(),
         position: error.position(),
+    }
+}
+
+fn root_schema_error(root: &SpannedYamlNode) -> InputLoadError {
+    let issue = Issue::new(
+        IssueCode::InputInvalidValue,
+        IssuePath::root(),
+        format!("expected mapping, observed {}", observed_root(root)),
+    );
+    InputLoadError::Schema {
+        issue,
+        position: root.span().start(),
+    }
+}
+
+fn observed_root(root: &SpannedYamlNode) -> String {
+    match root.kind() {
+        SpannedYamlKind::Sequence(_) => "sequence".to_owned(),
+        SpannedYamlKind::Mapping(_) => "mapping".to_owned(),
+        SpannedYamlKind::Scalar(scalar) => match scalar.kind() {
+            ScalarKind::Integer => scalar.value().to_owned(),
+            ScalarKind::Boolean => scalar.value().to_ascii_lowercase(),
+            ScalarKind::Null => "null".to_owned(),
+            ScalarKind::String | ScalarKind::Float => canonical_json_string(scalar.value()),
+        },
     }
 }

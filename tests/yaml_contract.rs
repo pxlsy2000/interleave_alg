@@ -2,6 +2,7 @@
 
 include!("support/yaml.rs");
 include!("support/yaml_adversarial.rs");
+include!("support/yaml_core.rs");
 
 use std::io::Cursor;
 

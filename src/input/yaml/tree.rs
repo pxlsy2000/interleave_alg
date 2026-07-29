@@ -78,7 +78,9 @@ pub enum ScalarKind {
     String,
     /// Plain integer-shaped scalar.
     Integer,
-    /// Plain lowercase `true` or `false`.
+    /// Plain YAML Core floating or non-finite spelling, without arithmetic.
+    Float,
+    /// Plain YAML Core boolean spelling.
     Boolean,
     /// Plain YAML null spelling.
     Null,

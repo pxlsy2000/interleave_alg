@@ -7,6 +7,7 @@ use crate::issue::IssuePath;
 use super::{
     ScalarKind, ScalarStyle, SourceSpan, SpannedMappingEntry, SpannedYamlKind, SpannedYamlNode,
     SpannedYamlScalar,
+    core::{scalar_kind, scalar_style},
     diagnostic::{PRIORITY_MERGE, PRIORITY_NON_STRING_KEY, Violation},
     location::PositionMap,
     path::child_path,
@@ -184,40 +185,4 @@ const fn is_node(event: &Event<'_>) -> bool {
         event,
         Event::Alias(_) | Event::Scalar(..) | Event::SequenceStart(..) | Event::MappingStart(..)
     )
-}
-
-const fn scalar_style(style: ParserScalarStyle) -> ScalarStyle {
-    match style {
-        ParserScalarStyle::Plain => ScalarStyle::Plain,
-        ParserScalarStyle::SingleQuoted => ScalarStyle::SingleQuoted,
-        ParserScalarStyle::DoubleQuoted => ScalarStyle::DoubleQuoted,
-        ParserScalarStyle::Literal => ScalarStyle::Literal,
-        ParserScalarStyle::Folded => ScalarStyle::Folded,
-    }
-}
-
-fn scalar_kind(value: &str, style: ScalarStyle) -> ScalarKind {
-    if style != ScalarStyle::Plain {
-        return ScalarKind::String;
-    }
-    match value {
-        "true" | "false" => ScalarKind::Boolean,
-        "~" | "null" | "Null" | "NULL" => ScalarKind::Null,
-        integer if is_integer(integer) => ScalarKind::Integer,
-        _ => ScalarKind::String,
-    }
-}
-
-fn is_integer(value: &str) -> bool {
-    let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
-    if let Some(hex) = unsigned.strip_prefix("0x") {
-        return !hex.is_empty() && hex.chars().all(|character| character.is_ascii_hexdigit());
-    }
-    if let Some(octal) = unsigned.strip_prefix("0o") {
-        return !octal.is_empty()
-            && octal
-                .chars()
-                .all(|character| matches!(character, '0'..='7'));
-    }
-    !unsigned.is_empty() && unsigned.chars().all(|character| character.is_ascii_digit())
 }
