@@ -14,10 +14,13 @@ use std::{
     path::Path,
 };
 
+use saphyr_parser::Event;
 use thiserror::Error;
 
 use crate::{
-    input::{InputReadError, InputSnapshot, read_bounded, read_named},
+    input::{
+        InputReadError, InputSnapshot, limits::MAX_YAML_SCALAR_UTF8_BYTES, read_bounded, read_named,
+    },
     issue::{Issue, IssueCode, IssuePath, canonical_json_string},
 };
 
@@ -26,7 +29,10 @@ pub use tree::{
     SpannedYamlKind, SpannedYamlNode, SpannedYamlScalar,
 };
 
-use self::{build::build_root, diagnostic::YamlParseError, events::collect};
+use self::{
+    build::build_root, core::canonical_integer, diagnostic::YamlParseError, events::collect,
+    location::PositionMap,
+};
 
 /// A bounded-read or strict-YAML failure carrying exactly one stable issue.
 #[derive(Debug, Error)]
@@ -120,6 +126,9 @@ pub fn parse_yaml(snapshot: &InputSnapshot) -> Result<SpannedYamlDocument, Input
             snapshot.bytes().len(),
         ))));
     }
+    if let Some(error) = scalar_bound_error(&stream.events, &stream.positions) {
+        return Err(error);
+    }
     let root = root.ok_or_else(|| {
         yaml_error(&YamlParseError::no_document(eof_position(
             decoded.text,
@@ -167,12 +176,37 @@ fn root_schema_error(root: &SpannedYamlNode) -> InputLoadError {
     }
 }
 
+fn scalar_bound_error(
+    events: &[(Event<'_>, saphyr_parser::Span)],
+    positions: &PositionMap,
+) -> Option<InputLoadError> {
+    let (length, position) = events
+        .iter()
+        .filter_map(|(event, span)| match event {
+            Event::Scalar(value, ..) if value.len() > MAX_YAML_SCALAR_UTF8_BYTES => {
+                Some((value.len(), positions.marker(span.start)))
+            }
+            _ => None,
+        })
+        .min_by_key(|(_, position)| position.byte_offset())?;
+    Some(InputLoadError::Schema {
+        issue: Issue::new(
+            IssueCode::InputInvalidValue,
+            IssuePath::root(),
+            format!(
+                "expected UTF-8 byte length <= {MAX_YAML_SCALAR_UTF8_BYTES}, observed {length}"
+            ),
+        ),
+        position,
+    })
+}
+
 fn observed_root(root: &SpannedYamlNode) -> String {
     match root.kind() {
         SpannedYamlKind::Sequence(_) => "sequence".to_owned(),
         SpannedYamlKind::Mapping(_) => "mapping".to_owned(),
         SpannedYamlKind::Scalar(scalar) => match scalar.kind() {
-            ScalarKind::Integer => scalar.value().to_owned(),
+            ScalarKind::Integer => canonical_integer(scalar.value()),
             ScalarKind::Boolean => scalar.value().to_ascii_lowercase(),
             ScalarKind::Null => "null".to_owned(),
             ScalarKind::String | ScalarKind::Float => canonical_json_string(scalar.value()),

@@ -4,6 +4,8 @@
 pub const MAX_ADDRESS_WIDTH_BITS: u8 = 64;
 /// Maximum retained bytes in one Mapping or Scenario source.
 pub const MAX_RAW_INPUT_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum decoded UTF-8 bytes in one YAML scalar key or value.
+pub const MAX_YAML_SCALAR_UTF8_BYTES: usize = 128;
 /// Maximum address operands in one `map` command.
 pub const MAX_QUERY_ADDRESSES: usize = 1_000_000;
 /// Maximum v1 Target count.
