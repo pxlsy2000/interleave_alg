@@ -1,6 +1,7 @@
 use super::{
     Address, AddressWidth, GenericInteger, Ratio, RatioError, exact_log2, is_power_of_two,
 };
+use crate::input::limits::MAX_ADDRESS_WIDTH_BITS;
 
 #[test]
 fn generic_integer_accepts_only_the_plain_integer_grammar() {
@@ -68,7 +69,7 @@ fn address_formats_canonical_lowercase_hex() {
 #[test]
 fn address_width_handles_the_full_u64_domain_without_shifting_by_64() {
     // Given
-    let width = AddressWidth::new(64);
+    let width = AddressWidth::new(MAX_ADDRESS_WIDTH_BITS);
     let maximum = Address::parse("18446744073709551615");
     let exclusive = Address::parse("18446744073709551616");
 
@@ -78,18 +79,20 @@ fn address_width_handles_the_full_u64_domain_without_shifting_by_64() {
         Ok(u128::from(u64::MAX) + 1)
     );
     assert_eq!(
-        maximum.and_then(|value| value.checked_for_width(AddressWidth::new(64)?)),
+        maximum
+            .and_then(|value| value.checked_for_width(AddressWidth::new(MAX_ADDRESS_WIDTH_BITS)?)),
         Ok(u128::from(u64::MAX))
     );
     assert_eq!(
-        maximum.and_then(|value| value.checked_u64(AddressWidth::new(64)?)),
+        maximum.and_then(|value| value.checked_u64(AddressWidth::new(MAX_ADDRESS_WIDTH_BITS)?)),
         Ok(u64::MAX)
     );
     assert!(
         exclusive
-            .and_then(|value| value.checked_u64(AddressWidth::new(64)?))
+            .and_then(|value| value.checked_u64(AddressWidth::new(MAX_ADDRESS_WIDTH_BITS)?))
             .is_err()
     );
+    assert!(AddressWidth::new(MAX_ADDRESS_WIDTH_BITS + 1).is_err());
 }
 
 #[test]

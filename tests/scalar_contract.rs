@@ -1,7 +1,7 @@
 //! Consumer-level exact scalar, issue, limit, and exit-routing contracts.
 
 use interleave::error::{BoundaryError, DomainError, ExitClass, InputKind};
-use interleave::input::limits::{MAX_GRANULE_BYTES, MAX_RATIO_NUMERATOR};
+use interleave::input::limits::{MAX_ADDRESS_WIDTH_BITS, MAX_GRANULE_BYTES, MAX_RATIO_NUMERATOR};
 use interleave::input::scalar::{
     Address, AddressError, AddressWidth, GenericInteger, GenericIntegerError, Ratio, RatioError,
 };
@@ -86,7 +86,7 @@ fn public_generic_integer_parser_is_distinct_from_address_parser() {
 #[test]
 fn width_and_granule_boundaries_remain_exact() {
     // Given
-    let width = AddressWidth::new(64);
+    let width = AddressWidth::new(MAX_ADDRESS_WIDTH_BITS);
     let maximum = Address::parse("18446744073709551615");
     let exclusive = Address::parse("18446744073709551616");
     let supported_granule = GenericInteger::parse("0x10000000000000");
@@ -99,7 +99,9 @@ fn width_and_granule_boundaries_remain_exact() {
     );
     assert_eq!(
         exclusive.and_then(|address| address.checked_u64(width?)),
-        Err(AddressError::OutOfRange { width_bits: 64 })
+        Err(AddressError::OutOfRange {
+            width_bits: MAX_ADDRESS_WIDTH_BITS
+        })
     );
     assert_eq!(
         supported_granule.map(GenericInteger::get),

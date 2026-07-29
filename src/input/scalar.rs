@@ -4,6 +4,11 @@ use std::fmt;
 
 use thiserror::Error;
 
+use super::limits::MAX_ADDRESS_WIDTH_BITS;
+use lexeme::{AccumulateError, accumulate, address_digits, generic_digits};
+
+mod lexeme;
+
 const DECIMAL_SCALE: u128 = 1_000_000;
 const U64_EXCLUSIVE_BOUND: u128 = 18_446_744_073_709_551_616;
 
@@ -91,7 +96,7 @@ pub struct AddressWidth(u8);
 impl AddressWidth {
     /// Constructs a validated address width.
     pub const fn new(width_bits: u8) -> Result<Self, AddressError> {
-        if width_bits == 0 || width_bits > 64 {
+        if width_bits == 0 || width_bits > MAX_ADDRESS_WIDTH_BITS {
             Err(AddressError::InvalidWidth { width_bits })
         } else {
             Ok(Self(width_bits))
@@ -105,7 +110,7 @@ impl AddressWidth {
 
     /// Returns the exclusive mathematical address bound `2^A`.
     pub const fn exclusive_bound(self) -> u128 {
-        if self.0 == 64 {
+        if self.0 == MAX_ADDRESS_WIDTH_BITS {
             U64_EXCLUSIVE_BOUND
         } else {
             1_u128 << self.0
@@ -217,105 +222,6 @@ pub enum RatioError {
     /// Checked scaling or round-half-up addition overflowed.
     #[error("ratio formatting overflowed")]
     Overflow,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AccumulateError {
-    Invalid,
-    Overflow,
-}
-
-fn generic_digits(lexeme: &str) -> Result<(&[u8], u128), GenericIntegerError> {
-    if let Some(hex) = lexeme.strip_prefix("0x") {
-        if hex.is_empty() || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(GenericIntegerError::InvalidLexeme);
-        }
-        Ok((hex.as_bytes(), 16))
-    } else {
-        let bytes = lexeme.as_bytes();
-        let valid = bytes == b"0"
-            || bytes
-                .first()
-                .is_some_and(|byte| matches!(byte, b'1'..=b'9'))
-                && bytes.iter().skip(1).all(u8::is_ascii_digit);
-        if valid {
-            Ok((bytes, 10))
-        } else {
-            Err(GenericIntegerError::InvalidLexeme)
-        }
-    }
-}
-
-fn address_digits(lexeme: &str) -> Result<(&[u8], u128), AddressError> {
-    lexeme.strip_prefix("0x").map_or_else(
-        || {
-            let bytes = lexeme.as_bytes();
-            let valid = bytes == b"0"
-                || bytes
-                    .first()
-                    .is_some_and(|byte| matches!(byte, b'1'..=b'9'))
-                    && valid_separated_digits(bytes, u8::is_ascii_digit);
-            if valid {
-                Ok((bytes, 10))
-            } else {
-                Err(AddressError::InvalidLexeme)
-            }
-        },
-        |hex| {
-            if valid_separated_digits(hex.as_bytes(), u8::is_ascii_hexdigit) {
-                Ok((hex.as_bytes(), 16))
-            } else {
-                Err(AddressError::InvalidLexeme)
-            }
-        },
-    )
-}
-
-fn valid_separated_digits(digits: &[u8], is_digit: fn(&u8) -> bool) -> bool {
-    let Some(first) = digits.first() else {
-        return false;
-    };
-    if !is_digit(first) {
-        return false;
-    }
-    let mut previous_was_digit = true;
-    for byte in digits.iter().skip(1) {
-        if *byte == b'_' {
-            if !previous_was_digit {
-                return false;
-            }
-            previous_was_digit = false;
-        } else if is_digit(byte) {
-            previous_was_digit = true;
-        } else {
-            return false;
-        }
-    }
-    previous_was_digit
-}
-
-fn accumulate(digits: &[u8], radix: u128, underscores: bool) -> Result<u128, AccumulateError> {
-    let mut value = 0_u128;
-    for byte in digits {
-        if *byte == b'_' && underscores {
-            continue;
-        }
-        let digit = digit_value(*byte).ok_or(AccumulateError::Invalid)?;
-        value = value
-            .checked_mul(radix)
-            .and_then(|partial| partial.checked_add(digit))
-            .ok_or(AccumulateError::Overflow)?;
-    }
-    Ok(value)
-}
-
-fn digit_value(byte: u8) -> Option<u128> {
-    match byte {
-        b'0'..=b'9' => Some(u128::from(byte - b'0')),
-        b'a'..=b'f' => Some(u128::from(byte - b'a') + 10),
-        b'A'..=b'F' => Some(u128::from(byte - b'A') + 10),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
