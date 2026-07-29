@@ -5,6 +5,7 @@ use clap::Command;
 pub fn command() -> Command {
     Command::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
+        .arg_required_else_help(true)
         .disable_help_subcommand(true)
 }
 
@@ -28,5 +29,20 @@ mod tests {
         };
         assert_eq!(error.kind(), ErrorKind::DisplayVersion);
         assert_eq!(error.to_string(), "interleave 0.1.0\n");
+    }
+
+    #[test]
+    fn empty_invocation_is_rejected() {
+        // Given
+        let arguments = ["interleave"];
+
+        // When
+        let result = command().try_get_matches_from(arguments);
+
+        // Then
+        assert!(matches!(
+            result.as_ref(),
+            Err(error) if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        ));
     }
 }
