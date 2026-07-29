@@ -396,15 +396,17 @@ v1 只接受处于以下闭区间限制内的工作量：
 | 一条 `run` 的总生成访问数 $\sum Q$ | `100,000,000` |
 | 单个 `multi_stream` case 的 stream 数 | `4,096` |
 | 单个 case 的有效窗口大小数 | `1,024` |
+| YAML decoding 后每个 Mapping name、Scenario case name 或 stream name 的 UTF-8 byte 数 | `128` |
 | 一份完整报告中跨具体测试合计的 Target 行数 | `1,000,000` |
 | 一份完整报告中跨具体测试合计的 window 行数 | `1,000,000` |
 | 一条 `run` 的精确窗口工作量 $\sum(Q\cdot K_{\mathrm{effective}})$ | `100,000,000` |
+| 一个完整 rendered text 或 JSON report 的 byte 数，包括其单个 trailing LF | `268,435,456` |
 
 预检使用的每个乘积、求和、$2^A$ 边界、sweep 基数、stream 总数和末地址表达式，都必须先用 checked `u128` 算术求值，再进行已经证明安全的窄化。checked 算术失败与超出相应边界属于同一种确定的限制失败；绝不允许回绕、截断或开始部分分析。
 
-Mapping 限制失败使用 `mapping.unsupported`，退出码为 2。Scenario 或展开后的 run 限制失败使用 `scenario.invalid`，退出码为 3。原始输入过大使用 `input.invalid_value`：Mapping 来源退出 2，Scenario 来源退出 3。`map` 操作数超限也使用 `input.invalid_value`，退出码为 3。只有在所有适用的输入、范围、地址和资源预检都通过后发生的意外失败，才使用 `analysis.failed` 并退出 4。
+Mapping 限制失败使用 `mapping.unsupported`，退出码为 2。Scenario 或展开后的 run 限制失败使用 `scenario.invalid`，退出码为 3。name-length failure 必须使用所属 schema code。原始输入过大使用 `input.invalid_value`：Mapping 来源退出 2，Scenario 来源退出 3。`map` 操作数超限也使用 `input.invalid_value`，退出码为 3。rendered-report limit violation 必须使用 `output.too_large` 并退出 1。只有在所有适用的输入、范围、地址、资源和 rendered-size gate 都通过后发生的意外失败，才使用 `analysis.failed` 并退出 4。
 
-这些限制属于输入契约，不是尽力而为的目标。处于所有适用限制以内的输入必须确定完成，除非发生 I/O 失败或报告上述限制以内的异常 `analysis.failed`。不得输出部分 Mapping 查询、具体测试或报告。
+这些限制属于输入/输出契约，不是尽力而为的目标。处于所有适用限制以内的输入和报告必须确定完成，除非发生 I/O 失败或报告上述限制以内的异常 `analysis.failed`。不得输出部分 Mapping 查询、具体测试或报告。
 
 ## 4. 用户输入格式
 
@@ -480,6 +482,8 @@ schema 解码时，在每个 mapping 中按来源顺序遍历已经出现的 ent
 
 optional 和 conditional field 绝不产生 missing issue，除非其 stated condition 使其 required。缺失 container field 在其列出位置使用 container 自身 path，并抑制全部 descendant。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
 
+known schema-field path segment 必须是以 `.` 连接的 identifier，sequence position 必须使用从零开始的 `[n]`。unknown-key 或 duplicate-key path 中 raw user-supplied mapping key 绝不能作为 identifier；必须把它追加为 `[<canonical-JSON-string>]`。因此 root key `bad.key` 的 path 为 `["bad.key"]`，`address` 下的 unknown key `x` 的 path 为 `address["x"]`。quote、backslash、control、line-separator、dot 和 bracket character 必须使用第 7.2 节的 canonical JSON escaping。text output 必须逐 byte 保留这些 escape，terminal rendering 前绝不得解码。duplicate-key issue 必须使用第二次 occurrence 的 encoded full path 与 source position。
+
 对于每个 Scenario case，即使 `kind` 缺失、类型错误或不是受支持的 literal，也必须按来源顺序处理 common field `name`、`enabled`、`kind` 和 `window_sizes`。在 `kind` 通过 string 与 allowed-value 两个 gate 之前，recognized-key set 必须是 common name 与全部已声明 kind-specific name 的并集：`base_bytes`、`stride_bytes`、`accesses`、`schedule` 和 `streams`。该并集只能用于判断 key 是否 unknown；必须抑制所有依赖 case kind 的 required、forbidden、type、value、shape、uniqueness、inheritance 和 resource check。common-plus-union set 之外的 key 仍必须产生 `input.unknown_field`。`kind` 有效后，只能使用该 kind 的精确 allowed field 和 constraint。因此，缺失、类型错误或不受支持的 `kind` 不得产生虚构的 `base_bytes`、`stride_bytes`、`schedule`、`streams` 或 forbidden-`accesses` issue。
 
 ### 4.2 Mapping 文件
@@ -512,7 +516,7 @@ mapping:
 | 路径 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
 | `schema_version` | integer | 是 | 固定为 `1` |
-| `name` | string | 是 | 非空的人类可读 Mapping 名称 |
+| `name` | string | 是 | 非空、便于阅读且 decoding 后最多 128 UTF-8 byte 的 Mapping 名称 |
 | `address.width_bits` | integer | 是 | $A$，范围 `1..64` |
 | `address.granule_bytes` | integer | 是 | $G$，必须为 2 的幂 |
 | `targets.count` | integer | 是 | $N$，必须为 2 的幂 |
@@ -693,7 +697,7 @@ case 名称必须匹配：
 [A-Za-z0-9][A-Za-z0-9._-]*
 ```
 
-该限制保证名称可以直接用于 `--case`，并且不会与 sweep 自动生成的组合 ID 冲突。
+该限制保证名称可以直接用于 `--case`，并且不会与 sweep 自动生成的组合 ID 冲突。每个 case name 在 YAML decoding 后最多为 128 UTF-8 byte。
 
 #### 4.3.4 stride
 
@@ -755,7 +759,7 @@ stride-and-phase-sweep[base=0x40,stride=0x100]
 | --- | --- | --- | --- |
 | `schedule` | string | 是 | stream 合并策略；v1 只支持 `round_robin` |
 | `streams` | stream array | 是 | 至少包含一个 stream |
-| `streams[].name` | string | 是 | 在 case 内唯一，且遵循 case 名称的字符规则 |
+| `streams[].name` | string | 是 | 在 case 内唯一，遵循 case name 字符规则，且 decoding 后最多 128 UTF-8 byte |
 | `streams[].base_bytes` | address scalar | 是 | stream 首个 byte address |
 | `streams[].stride_bytes` | address scalar | 是 | stream 步长，允许为 0 |
 | `streams[].accesses` | integer | 是 | stream 访问次数，必须大于 0 |
@@ -1030,9 +1034,9 @@ interleave run
 | 命令行或文件系统失败 | 诊断写入标准错误；不产生报告 | 诊断写入标准错误；不产生报告 |
 | 业务成功 | 完整报告写入所选报告目的地 | 一个完整 envelope 写入所选报告目的地 |
 | parse、schema、数学检查、预检或分析阶段的业务失败 | 完整失败报告写入标准错误；标准输出为空，输出文件保持不变 | 一个完整失败 envelope 写入所选报告目的地 |
-| `output.exists`、无效输出目标或原子输出失败 | 诊断写入标准错误，退出 1；被拒绝的目的地保持不变 | 诊断写入标准错误，退出 1；被拒绝的目的地无法接收 envelope |
+| `output.exists`、无效输出目标、原子输出失败或 `output.too_large` | 诊断写入标准错误，退出 1；被拒绝的目的地保持不变 | 诊断写入标准错误，退出 1；被拒绝的目的地无法接收 envelope |
 
-本表中的所选报告目的地是：省略 `--output` 或指定 `-` 时为标准输出，否则为命名文件。渲染或报告写入失败属于文件系统/输出失败，绝不产生部分业务报告。
+本表中的所选报告目的地是：省略 `--output` 或指定 `-` 时为标准输出，否则为命名文件。每个 text 或 JSON report，包括 success、validation failure、business-error envelope 或 verbose matrix report，都必须恰好包含一个 trailing LF，并且包括该 LF 在内最多为 `268435456` byte。rendering 必须使用 counting bounded sink。尝试第 `268435457` 个 byte 时必须立即停止，丢弃全部 partial buffer 或 temporary file，在标准错误上以 `output.too_large`、path `""`、退出码 1 精确输出 `report exceeds v1 limit 268435456 bytes`，并保持 destination 不变。该 failure 绝不得包装为 JSON envelope。渲染或报告写入失败属于文件系统/输出失败，绝不产生部分业务报告。
 
 ### 6.2 text 报告
 
@@ -1499,7 +1503,7 @@ run JSON 中各比例的精确字段固定为：
 
 `map` 中的查询地址无效或越界也使用退出码 `3`。
 
-第 3.7 节的限制分类是穷尽的：Mapping cap 使用 `mapping.unsupported`/2；Scenario 和展开后的 run cap 使用 `scenario.invalid`/3；原始输入和 `map` 操作数 cap 使用 `input.invalid_value`，并根据命令退出 2 或 3。`analysis.failed`/4 只保留给完整预检后发生的限制以内意外失败。
+第 3.7 节的限制分类是穷尽的：Mapping cap 使用 `mapping.unsupported`/2；Scenario 和展开后的 run cap 使用 `scenario.invalid`/3；原始输入和 `map` 操作数 cap 使用 `input.invalid_value`，并根据命令退出 2 或 3；rendered-report size 使用 `output.too_large`/1。`analysis.failed`/4 只保留给完整预检后发生的限制以内意外失败。
 
 ### 7.2 稳定问题码
 
@@ -1523,6 +1527,7 @@ run JSON 中各比例的精确字段固定为：
 | `output.invalid_target` | error | 输出路径已存在，但不是可接受的普通文件目标 |
 | `output.atomic_unsupported` | error | 无法提供原子 no-clobber rename |
 | `output.io` | error | 报告输出未能完成 |
+| `output.too_large` | error | 完整 rendered report 超过 v1 byte limit |
 | `analysis.failed` | error | 输入有效但分析未能完成 |
 
 实现可以增加更具体的问题码，但不能改变上述 code 的含义。
@@ -1543,12 +1548,13 @@ address <canonical> is outside the <A>-bit range
 output path already exists; use --force to replace it
 output target must be a regular file
 atomic no-clobber rename is unsupported
+report exceeds v1 limit 268435456 bytes
 analysis could not be completed
 ```
 
 `<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`。其他所有 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。
 
-`<canonical-value>` 恰好是以下之一：`missing`；使用上述 escaping 的完整 JSON string literal；无分组符、无前导零且负数恰好带一个前导 `-` 的 decimal integer；`true`；`false`；`null`；`sequence`；或 `mapping`。`<count>` 和 `<A>` 是非负、无分组符的 decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
+`<canonical-value>` 必须覆盖全部 YAML 1.2 value。sequence 恰好为 `sequence`；mapping 恰好为 `mapping`；resolved integer 是无分组符、无前导零且负数恰好带一个前导 `-` 的 decimal；resolved boolean 或 null 为 `true`、`false` 或 `null`；其他每种 scalar 都必须把 decoded content 按上述 escaping 表示为完整 JSON string literal。最后一类包括 quoted numeric text 以及所有 float 或 non-finite-looking scalar，包括 `1.5`、`.inf` 和 `.nan`。缺失为 `missing`。`<count>` 和 `<A>` 是非负、无分组符的 decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
 
 在 `unsupported` message 中，`<field>` 是不带引号的精确 issue `path`。因此对于 `mapping.unsupported`，它恰好是 `targets.count` 或 `address.granule_bytes`。在 conditional constraint 中，`<field>` 是不带引号、使用从零开始语法的 controlling field 完整 path。缺失字段的 issue path 是该缺失字段的完整 path，observed `<canonical-value>` 为 `missing`。
 
@@ -1570,6 +1576,7 @@ one of <compact-JSON-string-array>
 integer in [<min>,<max>]
 integer <= <max>
 sequence length <n>
+UTF-8 byte length <= <max>
 string matching <quoted-regex>
 non-empty string without control or line-separator characters
 field absent when <field>=<canonical-value>
@@ -1598,7 +1605,7 @@ granule size exceeds v1 limit 4503599627370496
 
 #### 规范性 Validation Emitter Matrix
 
-本 matrix 穷举 v1 的 input 与 validation diagnostic。每一行都是一条 emitter rule；scope cell 列出多个精确 path 或 path pattern 时，该行必须独立应用于每个 match。同一 path 的顺序只能由 gate/order column 决定。prerequisite 失败必须抑制全部 dependent row。类型错误的 container 使用其 actual canonical value；collection content、length 和 uniqueness failure 使用 `sequence`；scalar failure 使用该 scalar 的 canonical value；缺失使用 `missing`。derived-count row 使用其命名的无分组 decimal count。checked-arithmetic failure 使用对应 limit 加一作为 observed count，并使用同一行。`2^A`、`2^n`、`r`、`s`、`n-1` 及其他 dynamic substitution 必须使用已经验证的无分组 decimal value。
+本 matrix 穷举 v1 的 input 与 validation diagnostic。每一行都是一条 emitter rule；scope cell 列出多个精确 path 或 path pattern 时，该行必须独立应用于每个 match。同一 path 的顺序只能由 gate/order column 决定。prerequisite 失败必须抑制全部 dependent row。每个写有“actual canonical value”的 cell 都必须使用上述 total rule：类型错误的 collection 变为 `sequence` 或 `mapping`，integer/boolean/null 保留精确 canonical primitive，其他每种 scalar 变为 decoded-content JSON string。collection content、length 和 uniqueness failure 使用 `sequence`；缺失使用 `missing`。derived-count row 使用其命名的无分组 decimal count。除下文单独排序的五个 global total 外，checked-arithmetic failure 使用对应 limit 加一作为 observed count，并使用同一行。`2^A`、`2^n`、`r`、`s`、`n-1` 及其他 dynamic substitution 必须使用已经验证的无分组 decimal value。
 
 YAML 与 common input emitter：
 
@@ -1613,10 +1620,10 @@ YAML 与 common input emitter：
 | source，`""` | earliest byte，priority 6 | alias | `input.yaml_parse` | `invalid YAML syntax` | — | — |
 | source，`""` | earliest byte，priority 7 | merge key | `input.yaml_parse` | `invalid YAML syntax` | — | — |
 | source，`""` | earliest byte，priority 8 | non-string key | `input.yaml_parse` | `invalid YAML syntax` | — | — |
-| 第二次出现的完整 path | earliest byte，priority 9 | duplicate string key | `input.yaml_parse` | `duplicate key <quoted-key>` | — | quoted duplicate key |
+| 第二次 occurrence 的 encoded full path | earliest byte，priority 9；使用第二次 occurrence 的 source position | duplicate string key | `input.yaml_parse` | `duplicate key <quoted-key>` | — | quoted raw duplicate key |
 | source，`""` | earliest byte，priority 10 | 第二个或后续 document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | document count |
 | source，`""` | EOF position | 无 document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | `0` |
-| unrecognized key 的精确完整 path | YAML gate 后，按 containing mapping 来源顺序 | key 不在 allowed set | `input.unknown_field` | `unknown field <quoted-key>` | — | quoted final key |
+| unrecognized key 的精确 encoded full path | YAML gate 后，按 containing mapping 来源顺序 | key 不在 allowed set | `input.unknown_field` | `unknown field <quoted-key>` | — | quoted raw key |
 
 Mapping schema emitter：
 
@@ -1626,25 +1633,26 @@ Mapping schema emitter：
 | `schema_version`、`name`、`address`、`targets`、`mapping`、`mapping.m`、`mapping.l`、`mapping.m.rows` | parent gate，canonical missing order | intrinsically required field 缺失 | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
 | `address.width_bits`、`address.granule_bytes`、`targets.count`、`mapping.l.mode` | parent gate，canonical missing order | intrinsically required field 缺失 | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
 | `address`、`targets`、`mapping`、`mapping.m`、`mapping.l` | field 已出现后 | value 不是 mapping | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
-| `schema_version` | 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `schema_version` | 2 | scalar 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `schema_version` | 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `schema_version` | 2 | value 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `schema_version` | 3 | value 不是 `1` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [1,1]` | actual integer |
-| `name` | 1 | value 不是 string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `name` | 1 | value 不是 string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical value |
 | `name` | 2 | value 为空或包含 control/line-separator character | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `non-empty string without control or line-separator characters` | actual JSON string |
-| `address.width_bits` | 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `address.width_bits` | 2 | scalar 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `name` | 3 | decoded name 超过 128 UTF-8 byte | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `UTF-8 byte length <= 128` | actual UTF-8 byte count |
+| `address.width_bits` | 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `address.width_bits` | 2 | value 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `address.width_bits` | 3 | value 不在 `1..64` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [1,64]` | actual integer |
-| `address.granule_bytes` | scalar gate 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `address.granule_bytes` | scalar gate 2 | scalar 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `address.granule_bytes` | scalar gate 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `address.granule_bytes` | scalar gate 2 | value 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `address.granule_bytes` | cross-family 1 | integer 不是 2 的幂 | `mapping.unsupported` | `unsupported <field>: <reason>` | `granule size is not a power of two` | actual integer |
 | `address.granule_bytes` | cross-family 2；要求有效 `address.width_bits` | $G>2^A$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer <= <2^A>` | actual integer |
 | `address.granule_bytes` | cross-family 3 | $G>4503599627370496$ | `mapping.unsupported` | `unsupported <field>: <reason>` | `granule size exceeds v1 limit 4503599627370496` | actual integer |
-| `targets.count` | scalar gate 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `targets.count` | scalar gate 2 | scalar 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `targets.count` | scalar gate 1 | value 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `targets.count` | scalar gate 2 | value 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `targets.count` | cross-family 1 | integer 不是 2 的幂 | `mapping.unsupported` | `unsupported <field>: <reason>` | `target count is not a power of two` | actual integer |
 | `targets.count` | cross-family 2；要求有效 $n$ | $N>2^n$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer <= <2^n>` | actual integer |
 | `targets.count` | cross-family 3 | $N>65536$ | `mapping.unsupported` | `unsupported <field>: <reason>` | `target count exceeds v1 limit 65536` | actual integer |
-| `mapping.l.mode` | 1 | value 不是 string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `mapping.l.mode` | 1 | value 不是 string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical value |
 | `mapping.l.mode` | 2 | value 不是 supported mode | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `one of ["preserve_high","explicit"]` | actual JSON string |
 | `mapping.l.rows` | valid mode，conditional 1 | mode 为 `preserve_high` 时出现 | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `field absent when mapping.l.mode="preserve_high"` | actual canonical value |
 | `mapping.l.rows` | valid mode，conditional 1 | mode 为 `explicit` 时缺失 | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `field present when mapping.l.mode="explicit"` | `missing` |
@@ -1653,8 +1661,8 @@ Mapping schema emitter：
 | `mapping.l.rows` | 有效 $s$、explicit mode、sequence gate 后 | row count 不是 $s$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence length <s>` | `sequence` |
 | `mapping.m.rows[i]`、`mapping.l.rows[i]` | row 来源顺序，1 | row 不是 sequence | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
 | `mapping.m.rows[i]`、`mapping.l.rows[i]` | row 来源顺序，2 | row 重复 tap | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
-| `mapping.m.rows[i][j]`、`mapping.l.rows[i][j]` | tap 来源顺序，1 | tap 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `mapping.m.rows[i][j]`、`mapping.l.rows[i][j]` | tap 来源顺序，2 | tap 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `mapping.m.rows[i][j]`、`mapping.l.rows[i][j]` | tap 来源顺序，1 | tap 不是 integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `mapping.m.rows[i][j]`、`mapping.l.rows[i][j]` | tap 来源顺序，2 | tap 不是 plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `mapping.m.rows[i][j]`、`mapping.l.rows[i][j]` | 有效 $n$，tap 来源顺序，3 | tap 不在 `0..n-1` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [0,<n-1>]` | actual integer |
 
 Scenario schema emitter：
@@ -1668,39 +1676,40 @@ Scenario schema emitter：
 | `cases[i].schedule`、`cases[i].streams` | valid `multi_stream`，kind-specific missing order | intrinsically required field 缺失 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
 | `cases[i].streams[j].name`、`cases[i].streams[j].base_bytes`、`cases[i].streams[j].stride_bytes`、`cases[i].streams[j].accesses` | valid `multi_stream`，stream missing order | intrinsically required field 缺失 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
 | `defaults`、`cases[i]`、`cases[i].streams[j]` | presence 与 valid parent shape 后 | value 不是 mapping | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
-| `schema_version` | 1 | value 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| `schema_version` | 2 | scalar 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `schema_version` | 1 | value 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| `schema_version` | 2 | value 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | `schema_version` | 3 | value 不是 `1` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,1]` | actual integer |
-| `defaults.accesses`、`stride`/`sweep` 的 `cases[i].accesses`、`cases[i].streams[j].accesses` | 1 | value 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| 相同 accesses path | 2 | scalar 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `defaults.accesses`、`stride`/`sweep` 的 `cases[i].accesses`、`cases[i].streams[j].accesses` | 1 | value 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| 相同 accesses path | 2 | value 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | 相同 accesses path | 3 | value 不在 `1..10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,10000000]` | actual integer |
 | `defaults.window_sizes`、`cases[i].window_sizes` | 1 | value 不是 sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
 | 相同 window-list path | 2 | sequence 为空 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
 | 相同 window-list path | 3 | sequence 重复 value | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
-| `defaults.window_sizes[j]`、`cases[i].window_sizes[j]` | 1 | entry 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
-| 相同 window-entry path | 2 | entry 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `defaults.window_sizes[j]`、`cases[i].window_sizes[j]` | 1 | entry 不是 integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical value |
+| 相同 window-entry path | 2 | entry 不是 plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical value |
 | 相同 window-entry path | 3 | entry 不在 `1..10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,10000000]` | actual integer |
 | effective window-entry source path | selected case，inheritance 后且有效 effective $Q$ | $W>Q$ | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= <Q>` | actual $W$ |
 | `cases` | 1 | value 不是 sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
 | `cases` | 2 | sequence 为空 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
 | `cases[i]` | case 来源顺序 | entry 不是 mapping | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
-| `cases[i].name`、`cases[i].streams[j].name` | 1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `cases[i].name`、`cases[i].streams[j].name` | 1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical value |
 | 相同 name path | 2 | value 不符合 name grammar | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string matching "[A-Za-z0-9][A-Za-z0-9._-]*"` | actual JSON string |
+| 相同 name path | 3 | decoded name 超过 128 UTF-8 byte | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `UTF-8 byte length <= 128` | actual UTF-8 byte count |
 | `cases` | 所有有效 case name 后 | case name 不唯一 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
 | `cases[i].streams` | 所有有效 stream name 后 | stream name 不唯一 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
-| `cases[i].enabled` | common field，出现时 | value 不是 boolean | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `boolean` | actual canonical scalar |
-| `cases[i].kind` | common field，1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `cases[i].enabled` | common field，出现时 | value 不是 boolean | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `boolean` | actual canonical value |
+| `cases[i].kind` | common field，1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical value |
 | `cases[i].kind` | common field，2 | value 不是 supported kind | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `one of ["stride","sweep","multi_stream"]` | actual JSON string |
-| valid `stride` 的 `cases[i].base_bytes`、`cases[i].stride_bytes` | kind gate，field 来源顺序 | scalar 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
+| valid `stride` 的 `cases[i].base_bytes`、`cases[i].stride_bytes` | kind gate，field 来源顺序 | value 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical value |
 | valid `sweep` 的 `cases[i].base_bytes`、`cases[i].stride_bytes` | kind gate，1 | value 不是 sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
 | 相同 sweep path | kind gate，2 | sequence 为空 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
 | 相同 sweep path | kind gate，3 | sequence 重复 value | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
-| valid `sweep` 的 `cases[i].base_bytes[j]`、`cases[i].stride_bytes[j]` | entry 来源顺序 | entry 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
-| `cases[i].schedule` | valid `multi_stream`，1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| valid `sweep` 的 `cases[i].base_bytes[j]`、`cases[i].stride_bytes[j]` | entry 来源顺序 | entry 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical value |
+| `cases[i].schedule` | valid `multi_stream`，1 | value 不是 string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical value |
 | `cases[i].schedule` | valid `multi_stream`，2 | value 不是 `round_robin` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `one of ["round_robin"]` | actual JSON string |
 | `cases[i].streams` | valid `multi_stream`，1 | value 不是 sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
 | `cases[i].streams` | valid `multi_stream`，2 | sequence 为空 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
-| `cases[i].streams[j].base_bytes`、`cases[i].streams[j].stride_bytes` | valid stream，field 来源顺序 | scalar 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
+| `cases[i].streams[j].base_bytes`、`cases[i].streams[j].stride_bytes` | valid stream，field 来源顺序 | value 不是 plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical value |
 | `cases[i].accesses` | valid `multi_stream`，field 来源顺序 | forbidden case-level field 出现 | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `field absent when cases[i].kind="multi_stream"` | actual canonical value |
 
 command、semantic 与 resource emitter：
@@ -1714,18 +1723,19 @@ command、semantic 与 resource emitter：
 | effective-window source path | selected case，inheritance 后 | effective window count 超过 `1024` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1024` | actual window count |
 | `cases[i].streams` | selected case 且 valid `multi_stream` shape | stream count 超过 `4096` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 4096` | actual stream count |
 | `cases[i]` | selected case，inheritance/stream sum 后 | concrete-test $Q$ 超过 `10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 10000000` | actual $Q$ |
-| `cases` | selected-case expansion 后 | concrete-test count 超过 `10000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 10000` | actual test count |
-| `cases` | selected-case expansion 后 | $\sum Q$ 超过 `100000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 100000000` | actual $\sum Q$ |
-| `cases` | selected-case expansion 后 | Target report row 超过 `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual Target-row count |
-| `cases` | selected-case expansion 后 | window report row 超过 `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual window-row count |
-| `cases` | selected-case expansion 后 | $\sum(Q\cdot K_{\mathrm{effective}})>100000000$ | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sum(Q*K) <= 100000000` | actual checked sum |
+| `cases` | global total 1，全部 selected per-case check 后；failure 时停止 | concrete-test count 超过 `10000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 10000` | actual count，overflow 时为 `10001` |
+| `cases` | global total 2；仅 1 通过；failure 时停止 | $\sum Q$ 超过 `100000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 100000000` | actual sum，overflow 时为 `100000001` |
+| `cases` | global total 3；仅 1–2 通过；failure 时停止 | Target report row 超过 `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual count，overflow 时为 `1000001` |
+| `cases` | global total 4；仅 1–3 通过；failure 时停止 | window report row 超过 `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual count，overflow 时为 `1000001` |
+| `cases` | global total 5；仅 1–4 通过；failure 时停止 | $\sum(Q\cdot K_{\mathrm{effective}})>100000000$ | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sum(Q*K) <= 100000000` | actual sum，overflow 时为 `100000001` |
+| `""` | rendering bounded sink，business report selection 后 | 尝试 byte `268435457` | `output.too_large` | `report exceeds v1 limit 268435456 bytes` | — | `268435457` |
 | `mapping.m.rows` | mathematical check 后 | $\operatorname{rank}(M)<r$ | `mapping.target_unreachable` | `rank(M)=<actual>, expected <r>` | — | 第 6.4 节精确 check object |
 | explicit L 使用 `mapping.l.rows`；preserve-high 使用 `mapping.m.rows` | target reachable 后再进行 mathematical check | $\operatorname{rank}(F)<n$ | `mapping.non_bijective` | `rank(F)=<actual>, expected <n>` | — | 第 6.4 节精确 check object |
 | 第 6.4 节指定的 `mapping.m.rows`、`mapping.l.rows` 或 `mapping` | 前两个 check 通过 | natural-order predicate 失败 | `mapping.non_natural` | 第 6.4 节适用的精确 natural failure message | — | 第 6.4 节精确 check object |
 | `""` | requested name 的首次 CLI occurrence 顺序 | distinct requested case name 缺失 | `scenario.case_not_found` | `case <quoted-name> was not found` | — | quoted requested name |
 | `""` | case-name lookup 后 | final selection 为空且没有 missing-name issue | `scenario.no_case_selected` | `no scenario case was selected` | — | — |
 
-对于 Scenario case unknown-key detection，在 `kind` 有效前，allowed-name union 必须恰好为 `name`、`enabled`、`kind`、`window_sizes`、`base_bytes`、`stride_bytes`、`accesses`、`schedule` 和 `streams`，并且必须抑制 kind-dependent matrix row。`kind` 有效后，`stride` 和 `sweep` 允许四个 common name 加 `base_bytes`、`stride_bytes` 与 `accesses`；`multi_stream` 允许 common name 加 `schedule` 与 `streams`，同时只为显式 forbidden-field emitter 识别 `accesses`。其他 key 必须使用 common `input.unknown_field` row。
+对于 Scenario case unknown-key detection，在 `kind` 有效前，allowed-name union 必须恰好为 `name`、`enabled`、`kind`、`window_sizes`、`base_bytes`、`stride_bytes`、`accesses`、`schedule` 和 `streams`，并且必须抑制 kind-dependent matrix row。`kind` 有效后，`stride` 和 `sweep` 允许四个 common name 加 `base_bytes`、`stride_bytes` 与 `accesses`；`multi_stream` 允许 common name 加 `schedule` 与 `streams`，同时只为显式 forbidden-field emitter 识别 `accesses`。其他 key 必须使用 common `input.unknown_field` row。全部 selected per-case check 完成后，五条 `cases` global-total row 最多产生一个 issue：必须按编号顺序求值，并且 failure 后不得计算后续 aggregate。
 
 畸形 YAML 语法以及每种 prohibited syntax/document form 按第 4.1 节的 earliest-byte 规则竞争，并且只产生一个 `input.yaml_parse`。重复 key 和 document 数量 winner 使用上面的专用 template；其他 syntax/document winner 使用 `invalid YAML syntax`。未知字段使用 `input.unknown_field` 和 `unknown field` template。G/N cross-family row 对非 2 的幂与 v1-cap failure 都必须使用 `unsupported` template；其他 field、range 和 constraint row 必须使用 matrix 指定的 template。
 
@@ -1735,7 +1745,7 @@ Linux `x86_64-unknown-linux-gnu` 是 v1 文件系统 baseline。输入和输出 
 
 1. 对每个普通文件、标准输入、FIFO 或 device-like 命名输入使用第 4.1 节的 bounded reader。读到第 `16 MiB + 1` 个 byte 时停止；size error 先于 UTF-8/YAML 和输出预检。对于已读到 EOF 的合格普通文件输入 snapshot，保留 device 和 inode identity。
 2. `--force` 要求 path-valued output；省略 output 或指定 `-` 属于 usage error。在不跟随最终 symlink 的情况下检查最终路径。不存在的路径允许使用。无论是否有 `--force`，已存在的 symlink 或非普通文件都使用 `output.invalid_target`/1 拒绝。已存在的普通输出与每个普通文件输入通过 device 和 inode 比较，而不是比较路径拼写；同一文件或 hard-link alias 只有在 bounded input snapshot 已读到 EOF 后配合 `--force` 才允许。
-3. 创建目的地 transaction 之前渲染完整报告。在输出所在目录以 `O_CREAT|O_EXCL`、mode `0666 & umask` 创建普通临时文件；写入完整字节，flush userspace buffer，然后 close。
+3. 创建 destination transaction 之前，必须通过第 6.1 节的 `268435456`-byte counting bounded sink 渲染完整报告，count 包括单个 trailing LF。尝试 byte `268435457` 必须在标准错误产生 `output.too_large`/1、丢弃 partial render，且不得创建 destination transaction。只有 bounded render 成功后，才能在输出所在目录以 `O_CREAT|O_EXCL`、mode `0666 & umask` 创建普通临时文件；写入完整字节，flush userspace buffer，然后 close。
 4. 不带 `--force` 时，用 `renameat2(RENAME_NOREPLACE)` 提交。如果目的地此时已存在，报告 `output.exists`/1。如果 syscall 或文件系统无法提供原子 no-clobber rename，报告 `output.atomic_unsupported`/1；不允许 link/unlink 或其他较弱 fallback。
 5. 带 `--force` 时，在不跟随最终 symlink 的情况下重新检查最终路径。如果仍不存在，则用 atomic rename 创建；如果是已存在的普通文件，则用 atomic rename 替换。重新检查发现 symlink 或非普通目标时拒绝。
 6. commit 前任何失败都删除本次唯一临时文件。每个拒绝或失败操作都使旧目的地逐字节保持不变，并且不留下临时残留。
