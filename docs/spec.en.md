@@ -445,23 +445,26 @@ Generic integers therefore accept no sign, leading decimal zero, or underscore. 
 Validation follows this fixed ladder:
 
 1. validate command-line grammar;
-2. read every input fully;
-3. preflight the output destination;
-4. validate raw-byte limits, UTF-8, and YAML syntax/document rules;
-5. decode and validate the whole document schema, including unselected Scenario cases;
-6. validate Mapping scalars, relationships, and v1 caps;
-7. validate matrix dimensions and taps;
-8. calculate all three mathematical checks;
-9. select Scenario cases;
-10. resolve inheritance and validate semantics for selected cases;
-11. preflight checked expansion, resources, and every query or generated address;
-12. perform analysis;
-13. render the complete report;
-14. atomically commit file output.
+2. bounded-read each input in command order until EOF or byte `16 MiB + 1`;
+3. on byte `16 MiB + 1`, stop reading immediately and reject the source before UTF-8 or YAML inspection;
+4. preflight the output destination;
+5. validate UTF-8 and YAML syntax/document rules;
+6. decode and validate the whole document schema, including unselected Scenario cases;
+7. validate Mapping scalars, relationships, and v1 caps;
+8. validate matrix dimensions and taps;
+9. calculate all three mathematical checks;
+10. select Scenario cases;
+11. resolve inheritance and validate semantics for selected cases;
+12. preflight checked expansion, resources, and every query or generated address;
+13. perform analysis;
+14. render the complete report;
+15. atomically commit file output.
 
-All inputs are fully read before any content is parsed. Mapping content is validated before Scenario content. A destination error is therefore reported with exit 1 after input reading but before content parsing.
+“Read fully” means reaching EOF only within the 16 MiB envelope. One bounded reader is used for regular files, standard input, FIFOs, and device-like named inputs; it retains at most `16 MiB + 1` bytes. An in-envelope source is complete only when EOF is observed. On byte `16 MiB + 1`, the command stops that read immediately, does not read a later input, and reports the size issue before considering malformed UTF-8, a BOM, YAML, or the output destination. Mapping input always precedes Scenario input. For accepted-size snapshots, every input is acquired before output preflight or content parsing; a destination error then exits 1 before content parsing.
 
-Syntax and document-rule failures produce exactly one `input.yaml_parse` issue. Schema decoding produces one issue for each independently invalid field or entry in source order, but does not invent child issues that are unreachable because a parent is missing or has the wrong type. Array paths are zero-based, for example `cases[2].streams[1].accesses`, `mapping.m.rows[2][1]`, and `addresses[3]`; a command or command-line-option issue uses the empty path `""`.
+After the raw-size check, syntax, encoding, document, and prohibited-YAML failures produce exactly one `input.yaml_parse` issue. Choose the violation with the earliest source byte position across invalid UTF-8 or BOM, scanner/parser syntax, a flow-style root, an explicit tag, an anchor, alias, or merge key, a duplicate or non-string key, and the start of a second document. If failures begin at the same byte, the category order in the preceding sentence breaks the tie; a missing document is positioned at EOF. No later violation is reported.
+
+For schema decoding, walk each mapping’s present entries in source order. Process an entry recursively, including all independently invalid descendants, before moving to the next present sibling. After all present entries, emit missing required fields in that mapping’s documented field-table order. A missing or wrong-typed parent emits its own issue and suppresses synthetic descendant issues. Array paths are zero-based, for example `cases[2].streams[1].accesses`, `mapping.m.rows[2][1]`, and `addresses[3]`; a command or command-line-option issue uses the empty path `""`.
 
 ### 4.2 Mapping File
 
@@ -836,7 +839,7 @@ The binary command name is fixed as `interleave`.
 - `text` is used when `--format` is omitted;
 - `--format` accepts only `text` or `json`;
 - an existing output file is not overwritten by default; `--force` is required to overwrite it;
-- `--force` is permitted only when `--output` refers to a regular file;
+- `--force` requires a path-valued `--output`, not an omitted output or `-`; the path may be nonexistent, while an existing target must be a regular file and must not be a symlink;
 - at most one input file for a command may come from standard input.
 
 ### 5.2 Generate Templates
@@ -1221,7 +1224,7 @@ The issue structure is fixed:
 
 JSON object key order is not part of the contract. Array order explicitly defined by this specification is part of the contract.
 
-Issue arrays are ordered first by validation phase and then by source declaration order within that phase. Schema issues follow the independent-error and unreachable-child suppression rules in Section 4.1. Selected-case semantic issues follow Scenario declaration order and then field/source order.
+Issue arrays are ordered first by validation phase. Schema issues then follow Section 4.1’s recursive present-entry order and documented-table fallback order for missing fields. Selected-case semantic issues follow Scenario declaration order and then field/source order.
 
 Every address in JSON is a canonical hexadecimal string:
 
@@ -1498,18 +1501,18 @@ The limit classifications in Section 3.7 are exhaustive: Mapping caps use `mappi
 
 An implementation may add more specific issue codes, but it must not change the meaning of the codes above.
 
-The following issue messages are stable templates; angle-bracket terms are replaced with the canonical value defined by this specification:
+The following issue messages are stable templates; angle-bracket terms are replaced with the canonical representation defined below:
 
 ```text
 invalid YAML syntax
-duplicate key '<key>'
+duplicate key <quoted-key>
 expected exactly one YAML document, found <count>
-unknown field '<key>'
+unknown field <quoted-key>
 expected <constraint>, observed <canonical-value>
 unsupported <field>: <reason>
-case '<name>' was not found
+case <quoted-name> was not found
 no scenario case was selected
-invalid address '<lexeme>'
+invalid address <quoted-lexeme>
 address <canonical> is outside the <A>-bit range
 output path already exists; use --force to replace it
 output target must be a regular file
@@ -1517,17 +1520,21 @@ atomic no-clobber rename is unsupported
 analysis could not be completed
 ```
 
-Malformed YAML syntax and each prohibited syntax/document form produce one `input.yaml_parse`. Duplicate-key and document-count failures use their specific templates above; other syntax/document failures use `invalid YAML syntax`. Unknown fields use `input.unknown_field` and the `unknown field` template. Exact field/range errors use the `expected` template, while v1 support-cap errors use the `unsupported` template.
+`<quoted-key>`, `<quoted-name>`, and `<quoted-lexeme>` are complete JSON string literals, including the opening and closing double quotes. Their canonical escaping is: `"` becomes `\"`, `\` becomes `\\`, backspace/form-feed/newline/carriage-return/tab become `\b`, `\f`, `\n`, `\r`, `\t`, and every other U+0000 through U+001F scalar becomes lowercase `\u00xx`. Every other Unicode scalar is emitted literally as UTF-8; `/` is not escaped. A string `<canonical-value>` uses the same representation. An integer uses canonical base-10 with no leading zeros, a negative value has exactly one leading `-`, booleans are `true` or `false`, null is `null`, and collections are the literal `sequence` or `mapping`.
+
+`<count>` and `<A>` are non-negative canonical decimal integers. `<canonical>` is the canonical lowercase hexadecimal address from Section 6.3. `<field>` is the exact ASCII field path or stable field identifier named by the validation rule. `<constraint>` and `<reason>` are fixed ASCII phrases defined by that rule and never contain unescaped user input. No placeholder receives locale-dependent formatting or additional quotes.
+
+Malformed YAML syntax and each prohibited syntax/document form compete under Section 4.1’s earliest-byte rule and produce one `input.yaml_parse`. Duplicate-key and document-count winners use their specific templates above; other syntax/document winners use `invalid YAML syntax`. Unknown fields use `input.unknown_field` and the `unknown field` template. Exact field/range errors use the `expected` template, while v1 support-cap errors use the `unsupported` template.
 
 ### 7.3 Atomicity
 
 Linux `x86_64-unknown-linux-gnu` is the v1 filesystem baseline. Input and output transactions obey all of the following:
 
-1. Read every input completely before output preflight or content parsing, retaining device and inode identity for opened regular-file inputs.
-2. For a path-valued output, inspect the final path without following a symlink. Refuse a symlink or any existing non-regular file with `output.invalid_target`/1. Compare an existing regular output with every regular-file input by device and inode, not path spelling; the same file or a hard-link alias is permitted only with `--force`, after the input has been fully read.
+1. Use Section 4.1’s bounded reader for every regular file, standard input, FIFO, or device-like named input. Stop on byte `16 MiB + 1`; the size error wins before UTF-8/YAML and before output preflight. Retain device and inode identity for opened regular-file inputs whose accepted snapshot reached EOF.
+2. `--force` requires a path-valued output; an omitted output or `-` is a usage error. Inspect the final path without following a symlink. A nonexistent path is allowed. Refuse an existing symlink or non-regular file with `output.invalid_target`/1 regardless of `--force`. Compare an existing regular output with every regular-file input by device and inode, not path spelling; the same file or a hard-link alias is permitted only with `--force`, after its bounded input snapshot reached EOF.
 3. Render the complete report before creating the destination transaction. Create a regular temporary file in the output's directory with `O_CREAT|O_EXCL`, mode `0666 & umask`; write the complete bytes, flush userspace buffers, and close it.
 4. Without `--force`, commit with `renameat2(RENAME_NOREPLACE)`. If the destination now exists, report `output.exists`/1. If the syscall or filesystem cannot provide atomic no-clobber rename, report `output.atomic_unsupported`/1; no link/unlink or other weaker fallback is allowed.
-5. With `--force`, recheck the destination class and use an atomic rename that replaces a regular destination.
+5. With `--force`, recheck the final path without following a symlink. If it is still nonexistent, use atomic rename to create it; if it is an existing regular file, use atomic rename to replace it. Refuse a symlink or non-regular target found by this recheck.
 6. Remove the unique temporary file on every failure before commit. Every refused or failed operation leaves the prior destination byte-for-byte untouched and leaves no temporary residue.
 
 New files receive the temporary file's `0666 & umask` mode. Replacement does not preserve the prior destination's permissions, ownership, or other metadata. v1 promises neither an `fsync` crash-durability guarantee nor correctness under hostile concurrent mutation of the output directory.

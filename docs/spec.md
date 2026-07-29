@@ -445,23 +445,26 @@ hex:     0x[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)*
 验证遵循以下固定阶梯：
 
 1. 验证命令行语法；
-2. 完整读取每个输入；
-3. 预检输出目的地；
-4. 验证原始字节限制、UTF-8 和 YAML 语法/document 规则；
-5. 解码并验证整个 document schema，包括未选中的 Scenario case；
-6. 验证 Mapping scalar、关系和 v1 cap；
-7. 验证矩阵尺寸和 tap；
-8. 计算全部三个数学检查；
-9. 选择 Scenario case；
-10. 解析继承，并验证已选 case 的语义；
-11. 预检 checked 展开、资源以及每个查询或生成地址；
-12. 执行分析；
-13. 渲染完整报告；
-14. 原子提交文件输出。
+2. 按命令顺序 bounded-read 每个输入，直到 EOF 或读到第 `16 MiB + 1` 个 byte；
+3. 读到第 `16 MiB + 1` 个 byte 时立即停止读取，在检查 UTF-8 或 YAML 之前拒绝该来源；
+4. 预检输出目的地；
+5. 验证 UTF-8 和 YAML 语法/document 规则；
+6. 解码并验证整个 document schema，包括未选中的 Scenario case；
+7. 验证 Mapping scalar、关系和 v1 cap；
+8. 验证矩阵尺寸和 tap；
+9. 计算全部三个数学检查；
+10. 选择 Scenario case；
+11. 解析继承，并验证已选 case 的语义；
+12. 预检 checked 展开、资源以及每个查询或生成地址；
+13. 执行分析；
+14. 渲染完整报告；
+15. 原子提交文件输出。
 
-任何内容解析之前都必须完整读取全部输入。Mapping 内容始终先于 Scenario 内容验证。因此输出目的地错误在输入读取之后、内容解析之前以退出码 1 报告。
+“完整读取”只表示在 16 MiB envelope 内读到 EOF。普通文件、标准输入、FIFO 和 device-like 命名输入都使用同一个 bounded reader，最多保留 `16 MiB + 1` byte。只有观察到 EOF 时，处于限制以内的来源才算完整。读到第 `16 MiB + 1` 个 byte 时，命令立即停止本次读取，不再读取后续输入，并在考虑畸形 UTF-8、BOM、YAML 或输出目的地之前报告 size issue。Mapping 输入始终先于 Scenario 输入。对于大小合格的 snapshot，输出预检或内容解析前必须先取得全部输入；此后目的地错误在内容解析前以退出码 1 结束。
 
-语法和 document 规则失败只产生一个 `input.yaml_parse` issue。schema 解码按来源顺序为每个相互独立的无效字段或 entry 产生一个 issue；如果 parent 缺失或类型错误导致 child 不可达，则不得虚构 child issue。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
+原始大小检查之后，语法、编码、document 和 prohibited-YAML 失败恰好产生一个 `input.yaml_parse` issue。在无效 UTF-8 或 BOM、scanner/parser 语法、flow-style root、explicit tag、anchor、alias 或 merge key、重复或非 string key，以及第二个 document 起点之间，选择来源 byte position 最早的 violation。如果多个失败从同一 byte 开始，则按前一句列出的 category 顺序打破并列；缺失 document 的位置定义为 EOF。不得报告更晚的 violation。
+
+schema 解码时，在每个 mapping 中按来源顺序遍历已经出现的 entry。一个 entry 必须递归处理完毕，包括全部相互独立的无效 descendant，然后才移动到下一个已出现 sibling。处理完全部已出现 entry 后，按该 mapping 文档化 field table 的顺序产生缺失 required field。缺失或类型错误的 parent 只产生自身 issue，并抑制虚构的 descendant issue。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
 
 ### 4.2 Mapping 文件
 
@@ -836,7 +839,7 @@ cases:
 - 未指定 `--format` 时使用 `text`；
 - `--format` 只接受 `text` 或 `json`；
 - 输出文件已存在时默认拒绝覆盖，使用 `--force` 才允许覆盖；
-- `--force` 只有在 `--output` 指向普通文件时才允许使用；
+- `--force` 要求 `--output` 是 path-valued，不能省略也不能为 `-`；该路径可以不存在，但已存在的目标必须是普通文件且不能是 symlink；
 - 同一条命令最多只能有一个输入文件来自标准输入。
 
 ### 5.2 生成模板
@@ -1231,7 +1234,7 @@ issue 结构固定为：
 
 JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺序属于契约。
 
-issue array 首先按验证阶段排列，同一阶段内再按来源声明顺序排列。schema issue 遵循第 4.1 节的独立错误与不可达 child 抑制规则。已选 case 的语义 issue 按 Scenario 声明顺序排列，再按字段/来源顺序排列。
+issue array 首先按验证阶段排列。schema issue 随后遵循第 4.1 节的递归 present-entry 顺序，以及缺失字段的 documented-table fallback 顺序。已选 case 的语义 issue 按 Scenario 声明顺序排列，再按字段/来源顺序排列。
 
 所有地址在 JSON 中使用 canonical hex string：
 
@@ -1508,18 +1511,18 @@ run JSON 中各比例的精确字段固定为：
 
 实现可以增加更具体的问题码，但不能改变上述 code 的含义。
 
-以下 issue message 是稳定 template；尖括号中的项替换为本规格定义的 canonical value：
+以下 issue message 是稳定 template；尖括号中的项替换为下文定义的 canonical representation：
 
 ```text
 invalid YAML syntax
-duplicate key '<key>'
+duplicate key <quoted-key>
 expected exactly one YAML document, found <count>
-unknown field '<key>'
+unknown field <quoted-key>
 expected <constraint>, observed <canonical-value>
 unsupported <field>: <reason>
-case '<name>' was not found
+case <quoted-name> was not found
 no scenario case was selected
-invalid address '<lexeme>'
+invalid address <quoted-lexeme>
 address <canonical> is outside the <A>-bit range
 output path already exists; use --force to replace it
 output target must be a regular file
@@ -1527,17 +1530,21 @@ atomic no-clobber rename is unsupported
 analysis could not be completed
 ```
 
-畸形 YAML 语法以及每种被禁止的语法/document 形式只产生一个 `input.yaml_parse`。重复 key 和 document 数量失败使用上面的专用 template；其他语法/document 失败使用 `invalid YAML syntax`。未知字段使用 `input.unknown_field` 和 `unknown field` template。精确字段/范围错误使用 `expected` template，v1 support-cap 错误使用 `unsupported` template。
+`<quoted-key>`、`<quoted-name>` 和 `<quoted-lexeme>` 是完整 JSON string literal，包括开头和结尾的双引号。canonical escaping 为：`"` 变为 `\"`，`\` 变为 `\\`，backspace/form-feed/newline/carriage-return/tab 变为 `\b`、`\f`、`\n`、`\r`、`\t`，其余 U+0000 到 U+001F scalar 变为小写 `\u00xx`。其他所有 Unicode scalar 以 UTF-8 literal 原样输出；`/` 不转义。string `<canonical-value>` 使用同一 representation。integer 使用无前导零的 canonical base-10；负数恰好带一个前导 `-`；boolean 为 `true` 或 `false`；null 为 `null`；collection 使用 literal `sequence` 或 `mapping`。
+
+`<count>` 和 `<A>` 是非负 canonical decimal integer。`<canonical>` 是第 6.3 节的 canonical lowercase hexadecimal address。`<field>` 是 validation rule 指定的精确 ASCII field path 或 stable field identifier。`<constraint>` 和 `<reason>` 是该 rule 定义的固定 ASCII phrase，绝不包含未转义的用户输入。所有 placeholder 都不使用 locale-dependent formatting，也不增加额外引号。
+
+畸形 YAML 语法以及每种 prohibited syntax/document form 按第 4.1 节的 earliest-byte 规则竞争，并且只产生一个 `input.yaml_parse`。重复 key 和 document 数量 winner 使用上面的专用 template；其他 syntax/document winner 使用 `invalid YAML syntax`。未知字段使用 `input.unknown_field` 和 `unknown field` template。精确字段/范围错误使用 `expected` template，v1 support-cap 错误使用 `unsupported` template。
 
 ### 7.3 原子性
 
 Linux `x86_64-unknown-linux-gnu` 是 v1 文件系统 baseline。输入和输出 transaction 遵循以下全部规则：
 
-1. 在输出预检或内容解析之前完整读取每个输入，并为打开的普通文件输入保留 device 和 inode identity。
-2. 对 path-valued output，在不跟随最终 symlink 的情况下检查最终路径。symlink 或任何已存在的非普通文件使用 `output.invalid_target`/1 拒绝。已存在的普通输出与每个普通文件输入通过 device 和 inode 比较，而不是比较路径拼写；同一文件或 hard-link alias 只有在完整读取输入后配合 `--force` 才允许。
+1. 对每个普通文件、标准输入、FIFO 或 device-like 命名输入使用第 4.1 节的 bounded reader。读到第 `16 MiB + 1` 个 byte 时停止；size error 先于 UTF-8/YAML 和输出预检。对于已读到 EOF 的合格普通文件输入 snapshot，保留 device 和 inode identity。
+2. `--force` 要求 path-valued output；省略 output 或指定 `-` 属于 usage error。在不跟随最终 symlink 的情况下检查最终路径。不存在的路径允许使用。无论是否有 `--force`，已存在的 symlink 或非普通文件都使用 `output.invalid_target`/1 拒绝。已存在的普通输出与每个普通文件输入通过 device 和 inode 比较，而不是比较路径拼写；同一文件或 hard-link alias 只有在 bounded input snapshot 已读到 EOF 后配合 `--force` 才允许。
 3. 创建目的地 transaction 之前渲染完整报告。在输出所在目录以 `O_CREAT|O_EXCL`、mode `0666 & umask` 创建普通临时文件；写入完整字节，flush userspace buffer，然后 close。
 4. 不带 `--force` 时，用 `renameat2(RENAME_NOREPLACE)` 提交。如果目的地此时已存在，报告 `output.exists`/1。如果 syscall 或文件系统无法提供原子 no-clobber rename，报告 `output.atomic_unsupported`/1；不允许 link/unlink 或其他较弱 fallback。
-5. 带 `--force` 时，重新检查目的地类型，然后以原子 rename 替换普通目的地。
+5. 带 `--force` 时，在不跟随最终 symlink 的情况下重新检查最终路径。如果仍不存在，则用 atomic rename 创建；如果是已存在的普通文件，则用 atomic rename 替换。重新检查发现 symlink 或非普通目标时拒绝。
 6. commit 前任何失败都删除本次唯一临时文件。每个拒绝或失败操作都使旧目的地逐字节保持不变，并且不留下临时残留。
 
 新文件获得临时文件的 `0666 & umask` mode。替换不保留旧目的地的权限、ownership 或其他 metadata。v1 不承诺 `fsync` crash-durability，也不保证输出目录遭到敌对并发修改时的正确性。
