@@ -381,6 +381,31 @@ sweep 的每个 `(base, stride)` 组合都是独立的具体测试，各自计�
 
 v1 不定义跨组合聚合指标。
 
+### 3.7 运行限制与确定完成
+
+v1 只接受处于以下闭区间限制内的工作量：
+
+| 资源 | 限制 |
+| --- | --- |
+| 每个 Mapping 或 Scenario 来源的原始字节数，无论来自文件还是标准输入 | `16 MiB` |
+| 一条 `map` 命令的地址操作数 | `1,000,000` |
+| `targets.count`（$N$） | `65,536` |
+| `address.granule_bytes`（$G$） | $2^{52}$ |
+| 单个具体测试的访问数（$Q$） | `10,000,000` |
+| 一条 `run` 展开的具体测试数 | `10,000` |
+| 一条 `run` 的总生成访问数 $\sum Q$ | `100,000,000` |
+| 单个 `multi_stream` case 的 stream 数 | `4,096` |
+| 单个 case 的有效窗口大小数 | `1,024` |
+| 一份完整报告中跨具体测试合计的 Target 行数 | `1,000,000` |
+| 一份完整报告中跨具体测试合计的 window 行数 | `1,000,000` |
+| 一条 `run` 的精确窗口工作量 $\sum(Q\cdot K_{\mathrm{effective}})$ | `100,000,000` |
+
+预检使用的每个乘积、求和、$2^A$ 边界、sweep 基数、stream 总数和末地址表达式，都必须先用 checked `u128` 算术求值，再进行已经证明安全的窄化。checked 算术失败与超出相应边界属于同一种确定的限制失败；绝不允许回绕、截断或开始部分分析。
+
+Mapping 限制失败使用 `mapping.unsupported`，退出码为 2。Scenario 或展开后的 run 限制失败使用 `scenario.invalid`，退出码为 3。原始输入过大使用 `input.invalid_value`：Mapping 来源退出 2，Scenario 来源退出 3。`map` 操作数超限也使用 `input.invalid_value`，退出码为 3。只有在所有适用的输入、范围、地址和资源预检都通过后发生的意外失败，才使用 `analysis.failed` 并退出 4。
+
+这些限制属于输入契约，不是尽力而为的目标。处于所有适用限制以内的输入必须确定完成，除非发生 I/O 失败或报告上述限制以内的异常 `analysis.failed`。不得输出部分 Mapping 查询、具体测试或报告。
+
 ## 4. 用户输入格式
 
 ### 4.1 格式选择
@@ -394,17 +419,49 @@ v1 只接受 YAML 1.2 配置文件：
 
 选择 YAML 是因为 XOR tap 列表、场景列表和注释在 YAML 中更便于人工编写和评审。
 
-所有 YAML 文件必须满足：
+每个来源必须是 UTF-8，并且只包含一个 YAML document，其根节点必须是块样式（block-style）mapping。即使值符合 schema，流样式根节点也必须拒绝；因此无论文件扩展名是什么、是否使用标准输入，JSON object 都不能作为配置输入。schema 允许 sequence 的位置仍可使用嵌套流样式 sequence，例如本规格中的 tap 和 window 列表。
 
-- UTF-8 编码；
-- 只包含一个 YAML document；
-- key 区分大小写；
-- 未定义的 key 直接报错，避免拼写错误被静默忽略；
-- 重复 key 直接报错；
-- YAML anchor、alias 和 merge key 不属于 v1；
-- `schema_version` 必须为整数 `1`。
+只允许在来源最开头的三个字节出现一次 UTF-8 BOM。UTF-16 和 UTF-32 BOM、第二个 BOM，以及 byte zero 之后任意位置的 U+FEFF 都必须拒绝。YAML anchor、alias、merge key、所有显式 tag、重复 key、非 string mapping key、多 document 和未知字段都必须拒绝。key 区分大小写，`schema_version` 必须为整数 `1`。
 
-地址类数值可以写成非负十进制整数或 `0x` 开头的十六进制整数。工具生成的模板统一使用小写十六进制。
+scalar 解析遵循 YAML 1.2。特别地，plain `yes` 和 `on` 是 string：用于 `name` 等 string 字段时有效，用于 `enabled` 等 boolean 字段时属于类型错误。只有 plain `true` 和 `false` 满足 boolean 字段类型。
+
+以 plain YAML scalar 表示的地址字段以及每个命令行地址操作数，只接受以下 lexeme：
+
+```text
+decimal: 0|[1-9][0-9]*(?:_[0-9]+)*
+hex:     0x[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)*
+```
+
+下划线只能位于同一数值的两个数字之间。开头、结尾、连续两个以及紧邻前缀的下划线均无效。canonical 输出为小写十六进制且不含下划线。
+
+以 plain YAML scalar 表示的通用 integer 字段只接受：
+
+```text
+0|[1-9][0-9]*|0x[0-9A-Fa-f]+
+```
+
+因此通用 integer 不接受正负号、十进制前导零或下划线。带引号的 numeric text 对地址字段和通用 integer 字段都属于类型错误。
+
+验证遵循以下固定阶梯：
+
+1. 验证命令行语法；
+2. 完整读取每个输入；
+3. 预检输出目的地；
+4. 验证原始字节限制、UTF-8 和 YAML 语法/document 规则；
+5. 解码并验证整个 document schema，包括未选中的 Scenario case；
+6. 验证 Mapping scalar、关系和 v1 cap；
+7. 验证矩阵尺寸和 tap；
+8. 计算全部三个数学检查；
+9. 选择 Scenario case；
+10. 解析继承，并验证已选 case 的语义；
+11. 预检 checked 展开、资源以及每个查询或生成地址；
+12. 执行分析；
+13. 渲染完整报告；
+14. 原子提交文件输出。
+
+任何内容解析之前都必须完整读取全部输入。Mapping 内容始终先于 Scenario 内容验证。因此输出目的地错误在输入读取之后、内容解析之前以退出码 1 报告。
+
+语法和 document 规则失败只产生一个 `input.yaml_parse` issue。schema 解码按来源顺序为每个相互独立的无效字段或 entry 产生一个 issue；如果 parent 缺失或类型错误导致 child 不可达，则不得虚构 child issue。数组路径使用从零开始的下标，例如 `cases[2].streams[1].accesses`、`mapping.m.rows[2][1]` 和 `addresses[3]`；命令或命令行选项 issue 使用空路径 `""`。
 
 ### 4.2 Mapping 文件
 
@@ -771,7 +828,8 @@ cases:
 ### 5.1 通用约定
 
 - `--help` 显示帮助并以退出码 0 结束；
-- `--version` 显示工具版本并以退出码 0 结束；
+- `--version` 恰好显示 `interleave 0.1.0` 并以退出码 0 结束；
+- v1 初始 package version 固定为 `0.1.0`；
 - 输入路径 `-` 表示从标准输入读取；
 - 输出路径 `-` 表示写入标准输出；
 - 未指定 `--output` 时写入标准输出；
@@ -794,6 +852,76 @@ interleave template scenario --output <FILE> [--force]
 - 生成结果必须能直接被对应命令读取；
 - template 命令不支持 `--format`；
 - `--output` 必填。
+
+Mapping template body 恰好如下：
+
+```yaml
+# Interleave Mapping template (schema v1).
+# XOR tap indices refer to line-address bits x0, x1, ... from least significant upward.
+schema_version: 1
+name: example-4-target
+
+address:
+  width_bits: 20
+  granule_bytes: 64
+
+targets:
+  count: 4
+
+mapping:
+  m:
+    rows:
+      - [0, 4, 8]
+      - [1, 5, 9]
+  l:
+    # preserve_high keeps naturally ordered local-address bits.
+    mode: preserve_high
+```
+
+Scenario template body 恰好如下：
+
+```yaml
+# Interleave Scenario template (schema v1).
+# Every effective window size is measured in accesses and must not exceed its test length.
+schema_version: 1
+
+defaults:
+  accesses: 4096
+  window_sizes: [4, 16, 64]
+
+cases:
+  - name: sequential
+    enabled: true
+    kind: stride
+    base_bytes: 0x0
+    stride_bytes: 64
+
+  - name: stride-and-phase-sweep
+    enabled: true
+    kind: sweep
+    base_bytes: [0x0, 0x40, 0x80, 0xc0]
+    stride_bytes: [64, 128, 256]
+    accesses: 4096
+    window_sizes: [4, 16, 64, 256]
+
+  - name: two-master
+    enabled: true
+    kind: multi_stream
+    # round_robin takes one address from each active stream in declaration order.
+    schedule: round_robin
+    window_sizes: [4, 16, 64]
+    streams:
+      - name: master0
+        base_bytes: 0x0
+        stride_bytes: 256
+        accesses: 2048
+      - name: master1
+        base_bytes: 0x40
+        stride_bytes: 256
+        accesses: 2048
+```
+
+每个 template 都按照 code fence 内展示的 body 原样输出：UTF-8、LF line ending、无 BOM，并且恰好包含一个末尾换行。
 
 ### 5.3 验证 Mapping
 
@@ -857,6 +985,8 @@ interleave run
 - `valid_non_natural` 的场景报告必须保留 `mapping.non_natural` warning；
 - 运行前验证所有选中场景；任一场景无效时不产生部分分析结果。
 
+每个不存在且被请求的不同名称都产生一个 `scenario.case_not_found` issue，按其在命令行中首次出现的顺序排列，path 为 `""`；重复的不存在名称去重。如果存在任一缺失名称，则不再产生 `scenario.no_case_selected`。否则，最终选择为空时恰好产生一个 `scenario.no_case_selected`。已选 case 中的 issue 按 Scenario 声明顺序排列，再按字段/来源顺序排列。
+
 ## 6. 输出格式
 
 ### 6.1 输出通道
@@ -873,6 +1003,17 @@ interleave run
 - JSON 写入标准输出或 `--output` 指定文件；
 - 不在 JSON 前后混入普通文本；
 - 只有命令行语法错误、输入输出文件无法访问或 JSON 本身无法生成时才写标准错误。
+
+完整的目的地规则如下：
+
+| 结果 | Text | JSON |
+| --- | --- | --- |
+| 命令行或文件系统失败 | 诊断写入标准错误；不产生报告 | 诊断写入标准错误；不产生报告 |
+| 业务成功 | 完整报告写入所选报告目的地 | 一个完整 envelope 写入所选报告目的地 |
+| parse、schema、数学检查、预检或分析阶段的业务失败 | 完整失败报告写入标准错误；标准输出为空，输出文件保持不变 | 一个完整失败 envelope 写入所选报告目的地 |
+| `output.exists`、无效输出目标或原子输出失败 | 诊断写入标准错误，退出 1；被拒绝的目的地保持不变 | 诊断写入标准错误，退出 1；被拒绝的目的地无法接收 envelope |
+
+本表中的所选报告目的地是：省略 `--output` 或指定 `-` 时为标准输出，否则为命名文件。渲染或报告写入失败属于文件系统/输出失败，绝不产生部分业务报告。
 
 ### 6.2 text 报告
 
@@ -1086,9 +1227,11 @@ issue 结构固定为：
 }
 ```
 
-`path` 使用 YAML 字段路径；问题不对应输入字段时使用空字符串。
+`path` 使用第 4.1 节定义的从零开始字段路径；问题不对应输入字段时使用空字符串。
 
 JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺序属于契约。
+
+issue array 首先按验证阶段排列，同一阶段内再按来源声明顺序排列。schema issue 遵循第 4.1 节的独立错误与不可达 child 抑制规则。已选 case 的语义 issue 按 Scenario 声明顺序排列，再按字段/来源顺序排列。
 
 所有地址在 JSON 中使用 canonical hex string：
 
@@ -1106,7 +1249,22 @@ JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺�
 }
 ```
 
-`numerator/denominator` 是权威值且不约分；`decimal` 使用四舍五入保留 6 位小数。
+`numerator/denominator` 是权威值且不约分；`decimal` 使用精确 integer round-half-up 四舍五入保留 6 位小数，任何 ratio 计算都不使用 floating point。
+
+每个 JSON numeric field 的边界如下：
+
+| Numeric field | 边界 |
+| --- | --- |
+| 顶层 `schema_version` | 恰好为 `1` |
+| `derived.address_width_bits`、`derived.offset_bits`、`derived.line_bits`、`derived.target_bits`、`derived.local_address_bits`；所有 `rank_m`、`rank_f` 和 `rank_m_low` observed/expected | 最大 `64` |
+| `derived.granule_bytes` | 最大 $2^{52}$ |
+| `derived.target_count` | 最大 `65,536` |
+| `target` 中的每个 Target ID，包括 map row、Target row、max-load row、window 和 longest run | 最大 `65,535` |
+| 每个 case 的 `accesses`；Target/window `count`；window `size` 和 `start_index`；longest-run `length` 和 `start_index`；share 和 ratio denominator | 最大 `10,000,000` |
+| Target-share numerator | 最大 `10,000,000` |
+| max-load 和 window-ratio numerator | 最大 `65,536 * 10,000,000 = 655,360,000,000` |
+
+以上枚举了 envelope、validate result、map result 和 run result 中的全部 numeric field。报告行数、测试数和总生成访问数在渲染前受第 3.7 节限制。地址、line address、offset 和 local address 始终为 canonical string，绝不表示为 JSON number。因此每个 JSON integer 都不超过 $2^{53}-1$。
 
 ### 6.4 validate JSON result
 
@@ -1157,6 +1315,20 @@ JSON object 的 key 顺序不属于契约；本规格明确规定的 array 顺�
 ```
 
 `checks` 的顺序固定为示例中的三个检查。输入结构错误放入顶层 `errors`，不伪装成数学检查。
+
+精确的数学检查契约如下：
+
+| `id` | `observed` | `expected` | Pass message | Failure message |
+| --- | --- | --- | --- | --- |
+| `target_reachable` | `{"rank_m":actual}` | `{"rank_m":r}` | `all targets are reachable` | `rank(M)=<actual>, expected <r>` |
+| `bijective` | `{"rank_f":actual}` | `{"rank_f":n}` | `mapping is bijective` | `rank(F)=<actual>, expected <n>` |
+| `natural_local_address` | `{"rank_m_low":actual,"l_matches_preserve_high":bool}` | `{"rank_m_low":r,"l_matches_preserve_high":true}` | `local address is naturally ordered` | 见下文 |
+
+对于 `natural_local_address`，仅 rank predicate 失败时，failure message 恰好为 `rank(Mp)=<actual>, expected <r>`；仅 $L$ predicate 失败时，恰好为 `rank(Mp)=<actual>; L != [0 I]`；两者都失败时，恰好为 `rank(Mp)=<actual>, expected <r>; L != [0 I]`。predicate 通过时 status 为 `pass`；predicate 失败时，只有 `target_reachable` 和 `bijective` 都通过才为 `warning`，否则为 `fail`。
+
+无效 Mapping 保留全部三个 check object，但恰好只产生一个 primary error。`mapping.target_unreachable` 的优先级高于 `mapping.non_bijective`，path 为 `mapping.m.rows`。primary `mapping.non_bijective` issue 在 explicit $L$ 下使用 `mapping.l.rows`，在 `preserve_high` 下使用 `mapping.m.rows`。
+
+有效但非自然的 Mapping 恰好产生一个 `mapping.non_natural` warning。仅低 $M_p$ rank 失败时 path 为 `mapping.m.rows`；仅 $L$ 与 preserve-high 不一致时为 `mapping.l.rows`；两个 predicate 都失败时为 `mapping`。无效 Mapping 不产生额外的非自然 warning。
 
 ### 6.5 map JSON result
 
@@ -1308,6 +1480,8 @@ run JSON 中各比例的精确字段固定为：
 
 `map` 中的查询地址无效或越界也使用退出码 `3`。
 
+第 3.7 节的限制分类是穷尽的：Mapping cap 使用 `mapping.unsupported`/2；Scenario 和展开后的 run cap 使用 `scenario.invalid`/3；原始输入和 `map` 操作数 cap 使用 `input.invalid_value`，并根据命令退出 2 或 3。`analysis.failed`/4 只保留给完整预检后发生的限制以内意外失败。
+
 ### 7.2 稳定问题码
 
 `warnings[].code` 和 `errors[].code` 至少定义以下稳定值：
@@ -1327,17 +1501,48 @@ run JSON 中各比例的精确字段固定为：
 | `address.invalid` | error | 地址文本不是允许的非负整数 |
 | `address.out_of_range` | error | 查询或生成地址超出 $A$ 位范围 |
 | `output.exists` | error | 输出文件已存在且未指定 `--force` |
+| `output.invalid_target` | error | 输出路径已存在，但不是可接受的普通文件目标 |
+| `output.atomic_unsupported` | error | 无法提供原子 no-clobber rename |
+| `output.io` | error | 报告输出未能完成 |
 | `analysis.failed` | error | 输入有效但分析未能完成 |
 
 实现可以增加更具体的问题码，但不能改变上述 code 的含义。
 
+以下 issue message 是稳定 template；尖括号中的项替换为本规格定义的 canonical value：
+
+```text
+invalid YAML syntax
+duplicate key '<key>'
+expected exactly one YAML document, found <count>
+unknown field '<key>'
+expected <constraint>, observed <canonical-value>
+unsupported <field>: <reason>
+case '<name>' was not found
+no scenario case was selected
+invalid address '<lexeme>'
+address <canonical> is outside the <A>-bit range
+output path already exists; use --force to replace it
+output target must be a regular file
+atomic no-clobber rename is unsupported
+analysis could not be completed
+```
+
+畸形 YAML 语法以及每种被禁止的语法/document 形式只产生一个 `input.yaml_parse`。重复 key 和 document 数量失败使用上面的专用 template；其他语法/document 失败使用 `invalid YAML syntax`。未知字段使用 `input.unknown_field` 和 `unknown field` template。精确字段/范围错误使用 `expected` template，v1 support-cap 错误使用 `unsupported` template。
+
 ### 7.3 原子性
 
-- `map` 在计算前验证 Mapping 和全部查询地址；
-- `run` 在分析前验证 Mapping、全部选中场景及所有将生成的地址；
-- 任一预检失败时，不输出部分地址结果或部分场景结果；
-- 输出到文件时，只有完整报告生成成功后才替换目标文件；
-- 失败不能留下截断的目标文件。
+Linux `x86_64-unknown-linux-gnu` 是 v1 文件系统 baseline。输入和输出 transaction 遵循以下全部规则：
+
+1. 在输出预检或内容解析之前完整读取每个输入，并为打开的普通文件输入保留 device 和 inode identity。
+2. 对 path-valued output，在不跟随最终 symlink 的情况下检查最终路径。symlink 或任何已存在的非普通文件使用 `output.invalid_target`/1 拒绝。已存在的普通输出与每个普通文件输入通过 device 和 inode 比较，而不是比较路径拼写；同一文件或 hard-link alias 只有在完整读取输入后配合 `--force` 才允许。
+3. 创建目的地 transaction 之前渲染完整报告。在输出所在目录以 `O_CREAT|O_EXCL`、mode `0666 & umask` 创建普通临时文件；写入完整字节，flush userspace buffer，然后 close。
+4. 不带 `--force` 时，用 `renameat2(RENAME_NOREPLACE)` 提交。如果目的地此时已存在，报告 `output.exists`/1。如果 syscall 或文件系统无法提供原子 no-clobber rename，报告 `output.atomic_unsupported`/1；不允许 link/unlink 或其他较弱 fallback。
+5. 带 `--force` 时，重新检查目的地类型，然后以原子 rename 替换普通目的地。
+6. commit 前任何失败都删除本次唯一临时文件。每个拒绝或失败操作都使旧目的地逐字节保持不变，并且不留下临时残留。
+
+新文件获得临时文件的 `0666 & umask` mode。替换不保留旧目的地的权限、ownership 或其他 metadata。v1 不承诺 `fsync` crash-durability，也不保证输出目录遭到敌对并发修改时的正确性。
+
+`map` 在计算前验证 Mapping 和全部查询地址。`run` 在分析前验证 Mapping、已选场景、展开资源及所有将生成的地址。任一预检失败都不产生部分地址或场景结果，任一失败的文件 transaction 都不留下截断目标。
 
 ## 8. Corner case 的确定行为
 
@@ -1349,7 +1554,9 @@ run JSON 中各比例的精确字段固定为：
 | $N=2^n$ | 合法；$s=0$，LA line 恒为 0 |
 | `granule_bytes = 1` | 合法；$g=0$，byte offset 恒为 0 |
 | `granule_bytes > 2^A` | Mapping 输入错误 |
-| Target 数量、粒度不是 2 的幂 | 报告 `unsupported`，退出码 2 |
+| `granule_bytes > 2^52` 但仍满足数学关系 | `mapping.unsupported`，退出码 2 |
+| Target 数量、粒度不是 2 的幂 | 报告 `mapping.unsupported`，退出码 2 |
+| `targets.count > 65,536` 但在其他方面有意义 | `mapping.unsupported`，退出码 2 |
 | Target 数量超过 line-address 组合数 | Mapping 输入错误 |
 | tap 为负数或 `tap >= n` | Mapping 输入错误，并给出准确字段路径 |
 | 同一行出现重复 tap | Mapping 输入错误，不按 XOR 抵消处理 |
@@ -1367,6 +1574,7 @@ run JSON 中各比例的精确字段固定为：
 | 地址恰好为 $2^A-1$ | 合法 |
 | 地址等于或大于 $2^A$ | 越界错误 |
 | 负地址 | 输入错误 |
+| 地址文本含正负号、十进制前导零或无效下划线位置 | `address.invalid`；不产生部分查询结果 |
 | 64-bit 地址计算产生中间进位 | 先按数学整数检查，不能截断或回绕 |
 | base 或 stride 未按粒度对齐 | 合法，byte offset 按实际地址计算 |
 | `stride_bytes = 0` | 合法，表示重复访问同一地址 |
@@ -1388,6 +1596,8 @@ run JSON 中各比例的精确字段固定为：
 | 显式选择 disabled case | 运行该 case |
 | 同一 `--case` 重复出现 | 只运行一次 |
 | 任一生成地址越界 | 整条 run 命令失败，不截断、不回绕、不输出部分结果 |
+| 超出第 3.7 节任一 case 级或 run 级资源 cap | 分析前报告 `scenario.invalid`，退出码 3 |
+| 单个具体测试中 $Q=10,000,000$ 且 $K_{\mathrm{effective}}=1,024$ | 因 $QK=10,240,000,000>100,000,000$ 而拒绝 |
 
 ### 8.4 指标
 
