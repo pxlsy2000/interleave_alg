@@ -480,6 +480,8 @@ For schema decoding, walk each mapping’s present entries in source order. A pr
 
 Optional and conditional fields never produce a missing issue unless their stated condition makes them required. Missing container fields use the container’s own path at its listed position and suppress every descendant. Array paths are zero-based, for example `cases[2].streams[1].accesses`, `mapping.m.rows[2][1]`, and `addresses[3]`; a command or command-line-option issue uses the empty path `""`.
 
+For every Scenario case, process the common fields `name`, `enabled`, `kind`, and `window_sizes` in source order even when `kind` is missing, has the wrong type, or is not a supported literal. Until `kind` passes both its string and allowed-value gates, the recognized-key set is the union of the common names and all declared kind-specific names: `base_bytes`, `stride_bytes`, `accesses`, `schedule`, and `streams`. This union is used only to decide whether a key is unknown. Every required, forbidden, type, value, shape, uniqueness, inheritance, and resource check that depends on a case kind is suppressed. A key outside the common-plus-union set still emits `input.unknown_field`. Once `kind` is valid, use only that kind’s exact allowed fields and constraints. Consequently, a missing, wrong-typed, or unsupported `kind` never creates synthetic `base_bytes`, `stride_bytes`, `schedule`, `streams`, or forbidden-`accesses` issues.
+
 ### 4.2 Mapping File
 
 #### 4.2.1 Complete Example
@@ -1569,7 +1571,9 @@ sum(Q*K) <= 100000000
 
 All numbers substituted into a constraint are ungrouped decimal. `<compact-JSON-string-array>` has no spaces and uses the canonical JSON string form for every element, for example `["preserve_high","explicit"]`, `["stride","sweep","multi_stream"]`, or `["round_robin"]`. `<quoted-regex>` is a complete canonical JSON string literal, for example `"[A-Za-z0-9][A-Za-z0-9._-]*"`.
 
-For each present field or sequence entry, consider only the constraints applicable to its field definition and evaluate them in the order shown in the finite list above; emit only the first failure. Missing intrinsically required fields use `required field`; a conditionally forbidden or required field uses `field absent when ...` or `field present when ...`. For $G$ and $N$, scalar form is followed by `power of two`, the intrinsic upper relation, and then the v1 support cap. Sequence elements are processed in source order after their container’s own applicable constraints.
+For each present field or sequence entry, the normative emitter matrix below, rather than the textual order of the vocabulary, selects the applicable constraints and their order. Emit only the first failure for that field after its parent and type gates. Missing intrinsically required fields use `required field`; a conditionally forbidden or required field uses the matrix’s exact `field absent when ...` or `field present when ...` constraint. Sequence elements are processed in source order only after their container gates pass.
+
+`targets.count` and `address.granule_bytes` have one cross-family order that overrides every other constraint/reason ordering. After `integer` and `plain integer` succeed, evaluate: (1) non-power-of-two, which emits `mapping.unsupported` with the field-specific not-a-power-of-two reason; (2) the intrinsic relation, `targets.count <= 2^n` or `address.granule_bytes <= 2^A`, which emits `input.invalid_value` with `integer <= <max>`; and (3) the v1 cap, which emits `mapping.unsupported` with the field-specific exceeds-limit reason. Stop at the first result. The `expected power of two, observed ...` branch is not applicable to either field.
 
 `<reason>` is finite and must be exactly one of:
 
@@ -1582,7 +1586,138 @@ granule size exceeds v1 limit 4503599627370496
 
 The two target-count reasons always use `<field>` `targets.count`; the two granule-size reasons always use `<field>` `address.granule_bytes`. If more than one reason applies to one field, the order in the reason list above selects the first. No constraint or reason contains user-supplied text.
 
-Malformed YAML syntax and each prohibited syntax/document form compete under Section 4.1’s earliest-byte rule and produce one `input.yaml_parse`. Duplicate-key and document-count winners use their specific templates above; other syntax/document winners use `invalid YAML syntax`. Unknown fields use `input.unknown_field` and the `unknown field` template. Exact field/range errors use the `expected` template, while v1 support-cap errors use the `unsupported` template.
+#### Normative Validation Emitter Matrix
+
+This matrix is exhaustive for v1 input and validation diagnostics. Each row is one emitter rule; when a scope cell lists several exact paths or a path pattern, the row applies independently to each match. For rows sharing a path, the gate/order column is the only order. A failed prerequisite suppresses every dependent row. A wrong-typed container uses its actual canonical value; collection-content, length, and uniqueness failures use `sequence`; scalar failures use the scalar’s canonical value; absence uses `missing`. A derived-count row uses its named ungrouped decimal count. A checked-arithmetic failure uses the corresponding limit plus one as the observed count and follows the same row. `2^A`, `2^n`, `r`, `s`, `n-1`, and every other dynamic substitution use already validated ungrouped decimal values.
+
+YAML and common input emitters:
+
+| scope/path pattern | gate/order | failure | code | message template | constraint or reason | observed value |
+| --- | --- | --- | --- | --- | --- | --- |
+| Mapping or Scenario source, `""` | raw-size gate, first | byte `16777217` is read | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `at most 16777216 raw bytes` | `16777217` |
+| source, `""` | earliest byte, priority 1 | invalid encoding or prohibited BOM | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 2 | scanner/parser syntax | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 3 | flow-style root | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 4 | explicit tag | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 5 | anchor | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 6 | alias | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 7 | merge key | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| source, `""` | earliest byte, priority 8 | non-string key | `input.yaml_parse` | `invalid YAML syntax` | — | — |
+| second occurrence’s full path | earliest byte, priority 9 | duplicate string key | `input.yaml_parse` | `duplicate key <quoted-key>` | — | quoted duplicate key |
+| source, `""` | earliest byte, priority 10 | second or later document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | document count |
+| source, `""` | EOF position | no document | `input.yaml_parse` | `expected exactly one YAML document, found <count>` | — | `0` |
+| exact full path of an unrecognized key | YAML gates, then containing mapping in source order | key is outside the allowed set | `input.unknown_field` | `unknown field <quoted-key>` | — | quoted final key |
+
+Mapping schema emitters:
+
+| scope/path pattern | gate/order | failure | code | message template | constraint or reason | observed value |
+| --- | --- | --- | --- | --- | --- | --- |
+| `""` | Mapping schema, 1 | document root is not a mapping | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
+| `schema_version`, `name`, `address`, `targets`, `mapping`, `mapping.m`, `mapping.l`, `mapping.m.rows` | parent gate, canonical missing order | intrinsically required field absent | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `address.width_bits`, `address.granule_bytes`, `targets.count`, `mapping.l.mode` | parent gate, canonical missing order | intrinsically required field absent | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `address`, `targets`, `mapping`, `mapping.m`, `mapping.l` | after presence | value is not a mapping | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
+| `schema_version` | 1 | value is not an integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `schema_version` | 2 | scalar is not a plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `schema_version` | 3 | value is not `1` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [1,1]` | actual integer |
+| `name` | 1 | value is not a string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `name` | 2 | value is empty or contains a control or line-separator character | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `non-empty string without control or line-separator characters` | actual JSON string |
+| `address.width_bits` | 1 | value is not an integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `address.width_bits` | 2 | scalar is not a plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `address.width_bits` | 3 | value is outside `1..64` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [1,64]` | actual integer |
+| `address.granule_bytes` | scalar gate 1 | value is not an integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `address.granule_bytes` | scalar gate 2 | scalar is not a plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `address.granule_bytes` | cross-family 1 | integer is not a power of two | `mapping.unsupported` | `unsupported <field>: <reason>` | `granule size is not a power of two` | actual integer |
+| `address.granule_bytes` | cross-family 2; valid `address.width_bits` required | $G>2^A$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer <= <2^A>` | actual integer |
+| `address.granule_bytes` | cross-family 3 | $G>4503599627370496$ | `mapping.unsupported` | `unsupported <field>: <reason>` | `granule size exceeds v1 limit 4503599627370496` | actual integer |
+| `targets.count` | scalar gate 1 | value is not an integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `targets.count` | scalar gate 2 | scalar is not a plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `targets.count` | cross-family 1 | integer is not a power of two | `mapping.unsupported` | `unsupported <field>: <reason>` | `target count is not a power of two` | actual integer |
+| `targets.count` | cross-family 2; valid $n$ required | $N>2^n$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer <= <2^n>` | actual integer |
+| `targets.count` | cross-family 3 | $N>65536$ | `mapping.unsupported` | `unsupported <field>: <reason>` | `target count exceeds v1 limit 65536` | actual integer |
+| `mapping.l.mode` | 1 | value is not a string | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `mapping.l.mode` | 2 | value is not a supported mode | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `one of ["preserve_high","explicit"]` | actual JSON string |
+| `mapping.l.rows` | valid mode, conditional 1 | present when mode is `preserve_high` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `field absent when mapping.l.mode="preserve_high"` | actual canonical value |
+| `mapping.l.rows` | valid mode, conditional 1 | absent when mode is `explicit` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `field present when mapping.l.mode="explicit"` | `missing` |
+| `mapping.m.rows`, `mapping.l.rows` | after presence/conditional gate | value is not a sequence | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| `mapping.m.rows` | valid $r$, after sequence gate | row count is not $r$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence length <r>` | `sequence` |
+| `mapping.l.rows` | valid $s$, explicit mode, after sequence gate | row count is not $s$ | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence length <s>` | `sequence` |
+| `mapping.m.rows[i]`, `mapping.l.rows[i]` | row source order, 1 | row is not a sequence | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| `mapping.m.rows[i]`, `mapping.l.rows[i]` | row source order, 2 | row repeats a tap | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
+| `mapping.m.rows[i][j]`, `mapping.l.rows[i][j]` | tap source order, 1 | tap is not an integer | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `mapping.m.rows[i][j]`, `mapping.l.rows[i][j]` | tap source order, 2 | tap is not a plain generic-integer lexeme | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `mapping.m.rows[i][j]`, `mapping.l.rows[i][j]` | valid $n$, tap source order, 3 | tap is outside `0..n-1` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `integer in [0,<n-1>]` | actual integer |
+
+Scenario schema emitters:
+
+| scope/path pattern | gate/order | failure | code | message template | constraint or reason | observed value |
+| --- | --- | --- | --- | --- | --- | --- |
+| `""` | Scenario schema, 1 | document root is not a mapping | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
+| `schema_version`, `defaults`, `cases`, `defaults.accesses`, `defaults.window_sizes` | parent gate, canonical missing order | intrinsically required field absent | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `cases[i].name`, `cases[i].kind` | common-field canonical missing order | intrinsically required field absent | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `cases[i].base_bytes`, `cases[i].stride_bytes` | valid `stride` or `sweep`, kind-specific missing order | intrinsically required field absent | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `cases[i].schedule`, `cases[i].streams` | valid `multi_stream`, kind-specific missing order | intrinsically required field absent | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `cases[i].streams[j].name`, `cases[i].streams[j].base_bytes`, `cases[i].streams[j].stride_bytes`, `cases[i].streams[j].accesses` | valid `multi_stream`, stream missing order | intrinsically required field absent | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `required field` | `missing` |
+| `defaults`, `cases[i]`, `cases[i].streams[j]` | after presence and valid parent shape | value is not a mapping | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
+| `schema_version` | 1 | value is not an integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| `schema_version` | 2 | scalar is not a plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| `schema_version` | 3 | value is not `1` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,1]` | actual integer |
+| `defaults.accesses`, `cases[i].accesses` for `stride`/`sweep`, `cases[i].streams[j].accesses` | 1 | value is not an integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| same access paths | 2 | scalar is not a plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| same access paths | 3 | value is outside `1..10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,10000000]` | actual integer |
+| `defaults.window_sizes`, `cases[i].window_sizes` | 1 | value is not a sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| same window-list paths | 2 | sequence is empty | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
+| same window-list paths | 3 | sequence repeats a value | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
+| `defaults.window_sizes[j]`, `cases[i].window_sizes[j]` | 1 | entry is not an integer | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer` | actual canonical scalar |
+| same window-entry paths | 2 | entry is not a plain generic-integer lexeme | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain integer` | actual canonical scalar |
+| same window-entry paths | 3 | entry is outside `1..10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer in [1,10000000]` | actual integer |
+| effective window-entry source path | selected case, after inheritance and valid effective $Q$ | $W>Q$ | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= <Q>` | actual $W$ |
+| `cases` | 1 | value is not a sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| `cases` | 2 | sequence is empty | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
+| `cases[i]` | case source order | entry is not a mapping | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `mapping` | actual canonical value |
+| `cases[i].name`, `cases[i].streams[j].name` | 1 | value is not a string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| same name paths | 2 | value does not match the name grammar | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string matching "[A-Za-z0-9][A-Za-z0-9._-]*"` | actual JSON string |
+| `cases` | after all valid case names | case names are not unique | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
+| `cases[i].streams` | after all valid stream names | stream names are not unique | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
+| `cases[i].enabled` | common field, if present | value is not a boolean | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `boolean` | actual canonical scalar |
+| `cases[i].kind` | common field, 1 | value is not a string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `cases[i].kind` | common field, 2 | value is not a supported kind | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `one of ["stride","sweep","multi_stream"]` | actual JSON string |
+| `cases[i].base_bytes`, `cases[i].stride_bytes` for valid `stride` | kind gate, field source order | scalar is not a plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
+| `cases[i].base_bytes`, `cases[i].stride_bytes` for valid `sweep` | kind gate, 1 | value is not a sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| same sweep paths | kind gate, 2 | sequence is empty | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
+| same sweep paths | kind gate, 3 | sequence repeats a value | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `unique values` | `sequence` |
+| `cases[i].base_bytes[j]`, `cases[i].stride_bytes[j]` for valid `sweep` | entry source order | entry is not a plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
+| `cases[i].schedule` | valid `multi_stream`, 1 | value is not a string | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `string` | actual canonical scalar |
+| `cases[i].schedule` | valid `multi_stream`, 2 | value is not `round_robin` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `one of ["round_robin"]` | actual JSON string |
+| `cases[i].streams` | valid `multi_stream`, 1 | value is not a sequence | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sequence` | actual canonical value |
+| `cases[i].streams` | valid `multi_stream`, 2 | sequence is empty | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `non-empty sequence` | `sequence` |
+| `cases[i].streams[j].base_bytes`, `cases[i].streams[j].stride_bytes` | valid stream, field source order | scalar is not a plain address | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `plain address` | actual canonical scalar |
+| `cases[i].accesses` | valid `multi_stream`, field source order | forbidden case-level field is present | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `field absent when cases[i].kind="multi_stream"` | actual canonical value |
+
+Command, semantic, and resource emitters:
+
+| scope/path pattern | gate/order | failure | code | message template | constraint or reason | observed value |
+| --- | --- | --- | --- | --- | --- | --- |
+| `addresses[i]` | command operand source order, 1 | operand is not a plain address | `address.invalid` | `invalid address <quoted-lexeme>` | `plain address` | quoted original lexeme |
+| `addresses[i]` | command operand source order, 2; valid $A$ | address is at least $2^A$ | `address.out_of_range` | `address <canonical> is outside the <A>-bit range` | `integer <= <2^A-1>` | canonical address |
+| `""` | after CLI grammar | query-address count exceeds `1000000` | `input.invalid_value` | `expected <constraint>, observed <canonical-value>` | `at most 1000000 query addresses` | actual query count |
+| generated address from `cases[i]`, or `cases[i].streams[j]` | after checked expansion, source test/address order | address is at least $2^A$ | `address.out_of_range` | `address <canonical> is outside the <A>-bit range` | `integer <= <2^A-1>` | canonical address |
+| effective-window source path | selected case, after inheritance | effective window count exceeds `1024` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1024` | actual window count |
+| `cases[i].streams` | selected case with valid `multi_stream` shape | stream count exceeds `4096` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 4096` | actual stream count |
+| `cases[i]` | selected case, after inheritance/stream sum | concrete-test $Q$ exceeds `10000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 10000000` | actual $Q$ |
+| `cases` | after selected-case expansion | concrete-test count exceeds `10000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 10000` | actual test count |
+| `cases` | after selected-case expansion | $\sum Q$ exceeds `100000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 100000000` | actual $\sum Q$ |
+| `cases` | after selected-case expansion | Target report rows exceed `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual Target-row count |
+| `cases` | after selected-case expansion | window report rows exceed `1000000` | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `integer <= 1000000` | actual window-row count |
+| `cases` | after selected-case expansion | $\sum(Q\cdot K_{\mathrm{effective}})>100000000$ | `scenario.invalid` | `expected <constraint>, observed <canonical-value>` | `sum(Q*K) <= 100000000` | actual checked sum |
+| `mapping.m.rows` | after mathematical checks | $\operatorname{rank}(M)<r$ | `mapping.target_unreachable` | `rank(M)=<actual>, expected <r>` | — | exact Section 6.4 check object |
+| `mapping.l.rows` for explicit L; `mapping.m.rows` for preserve-high | target reachable, then mathematical checks | $\operatorname{rank}(F)<n$ | `mapping.non_bijective` | `rank(F)=<actual>, expected <n>` | — | exact Section 6.4 check object |
+| `mapping.m.rows`, `mapping.l.rows`, or `mapping` as assigned in Section 6.4 | first two checks pass | natural-order predicate fails | `mapping.non_natural` | exact applicable Section 6.4 natural failure message | — | exact Section 6.4 check object |
+| `""` | requested names in first CLI occurrence order | distinct requested case name absent | `scenario.case_not_found` | `case <quoted-name> was not found` | — | quoted requested name |
+| `""` | after case-name lookup | final selection empty and no missing-name issue exists | `scenario.no_case_selected` | `no scenario case was selected` | — | — |
+
+For Scenario case unknown-key detection, before a valid `kind` the allowed-name union is exactly `name`, `enabled`, `kind`, `window_sizes`, `base_bytes`, `stride_bytes`, `accesses`, `schedule`, and `streams`, and kind-dependent matrix rows are suppressed. After a valid `kind`, `stride` and `sweep` allow the four common names plus `base_bytes`, `stride_bytes`, and `accesses`; `multi_stream` allows the common names plus `schedule` and `streams`, while recognizing `accesses` only for its explicit forbidden-field emitter. Every other key uses the common `input.unknown_field` row.
+
+Malformed YAML syntax and each prohibited syntax/document form compete under Section 4.1’s earliest-byte rule and produce one `input.yaml_parse`. Duplicate-key and document-count winners use their specific templates above; other syntax/document winners use `invalid YAML syntax`. Unknown fields use `input.unknown_field` and the `unknown field` template. The G/N cross-family rows use the `unsupported` template for both non-power-of-two and v1-cap failures; every other field, range, and constraint row uses the matrix’s assigned template.
 
 ### 7.3 Atomicity
 
