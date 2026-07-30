@@ -1,0 +1,12 @@
+schema_version: 1
+name: g1-n1
+address:
+  width_bits: 4
+  granule_bytes: 1
+targets:
+  count: 1
+mapping:
+  m:
+    rows: []
+  l:
+    mode: preserve_high

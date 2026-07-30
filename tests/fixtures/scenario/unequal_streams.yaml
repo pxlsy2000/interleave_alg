@@ -1,0 +1,25 @@
+schema_version: 1
+defaults:
+  accesses: 1
+  window_sizes: [1]
+cases:
+  - name: one-stream
+    kind: multi_stream
+    schedule: round_robin
+    streams:
+      - name: only
+        base_bytes: 0
+        stride_bytes: 1
+        accesses: 3
+  - name: unequal
+    kind: multi_stream
+    schedule: round_robin
+    streams:
+      - name: short
+        base_bytes: 0
+        stride_bytes: 1
+        accesses: 2
+      - name: long
+        base_bytes: 2
+        stride_bytes: 1
+        accesses: 3

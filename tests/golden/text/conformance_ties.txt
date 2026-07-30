@@ -1,0 +1,28 @@
+Mapping: metric-target4
+Input: tests/fixtures/mapping/metric_target4.yaml
+Result: valid_natural
+
+Case: every-tie
+Source case: every-tie
+Accesses: 4
+
+Targets
+Target  Count  Share
+0       2      0.500000
+1       2      0.500000
+2       0      0.000000
+3       0      0.000000
+
+Max load
+Target  Count  Ratio
+0       2      2.000000
+
+Short-term windows
+Size  Target  Start index  Count  Ratio
+2     0       0            1      2.000000
+
+Longest run
+Length  Target  Start index
+1       1       0
+
+Warnings: none

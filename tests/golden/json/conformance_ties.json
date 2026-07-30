@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "command": "run",
+  "status": "pass",
+  "warnings": [],
+  "errors": [],
+  "result": {
+    "mapping_name": "metric-target4",
+    "mapping_classification": "valid_natural",
+    "cases": [
+      {
+        "case_id": "every-tie",
+        "source_case": "every-tie",
+        "accesses": 4,
+        "targets": [
+          {
+            "target": 0,
+            "count": 2,
+            "share": {
+              "numerator": 2,
+              "denominator": 4,
+              "decimal": "0.500000"
+            }
+          },
+          {
+            "target": 1,
+            "count": 2,
+            "share": {
+              "numerator": 2,
+              "denominator": 4,
+              "decimal": "0.500000"
+            }
+          },
+          {
+            "target": 2,
+            "count": 0,
+            "share": {
+              "numerator": 0,
+              "denominator": 4,
+              "decimal": "0.000000"
+            }
+          },
+          {
+            "target": 3,
+            "count": 0,
+            "share": {
+              "numerator": 0,
+              "denominator": 4,
+              "decimal": "0.000000"
+            }
+          }
+        ],
+        "max_load": {
+          "target": 0,
+          "count": 2,
+          "ratio": {
+            "numerator": 8,
+            "denominator": 4,
+            "decimal": "2.000000"
+          }
+        },
+        "windows": [
+          {
+            "size": 2,
+            "target": 0,
+            "start_index": 0,
+            "count": 1,
+            "ratio": {
+              "numerator": 4,
+              "denominator": 2,
+              "decimal": "2.000000"
+            }
+          }
+        ],
+        "longest_run": {
+          "length": 1,
+          "target": 1,
+          "start_index": 0
+        }
+      }
+    ]
+  }
+}

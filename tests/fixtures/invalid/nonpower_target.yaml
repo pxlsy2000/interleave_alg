@@ -1,0 +1,13 @@
+schema_version: 1
+name: nonpower-target
+address:
+  width_bits: 4
+  granule_bytes: 1
+targets:
+  count: 3
+mapping:
+  m:
+    rows:
+      - [0]
+  l:
+    mode: preserve_high

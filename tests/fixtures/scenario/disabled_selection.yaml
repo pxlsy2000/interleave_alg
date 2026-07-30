@@ -1,0 +1,15 @@
+schema_version: 1
+defaults:
+  accesses: 2
+  window_sizes: [1]
+cases:
+  - name: disabled
+    enabled: false
+    kind: stride
+    base_bytes: 0
+    stride_bytes: 1
+  - name: enabled
+    enabled: true
+    kind: stride
+    base_bytes: 1
+    stride_bytes: 1

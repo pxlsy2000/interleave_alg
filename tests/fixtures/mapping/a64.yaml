@@ -1,0 +1,12 @@
+schema_version: 1
+name: a64
+address:
+  width_bits: 64
+  granule_bytes: 1
+targets:
+  count: 1
+mapping:
+  m:
+    rows: []
+  l:
+    mode: preserve_high

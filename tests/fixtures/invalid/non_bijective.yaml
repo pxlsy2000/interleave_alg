@@ -1,0 +1,17 @@
+schema_version: 1
+name: non-bijective
+address:
+  width_bits: 4
+  granule_bytes: 1
+targets:
+  count: 2
+mapping:
+  m:
+    rows:
+      - [0]
+  l:
+    mode: explicit
+    rows:
+      - [1]
+      - [2]
+      - [2]

@@ -1,0 +1,24 @@
+schema_version: 1
+defaults:
+  accesses: 1
+  window_sizes: [1]
+cases:
+  - name: every-tie
+    kind: multi_stream
+    window_sizes: [2]
+    schedule: round_robin
+    streams:
+      - name: target-one
+        base_bytes: 1
+        stride_bytes: 0
+        accesses: 2
+      - name: target-zero
+        base_bytes: 0
+        stride_bytes: 0
+        accesses: 2
+  - name: non-divisible
+    kind: stride
+    base_bytes: 0
+    stride_bytes: 1
+    accesses: 3
+    window_sizes: [1]

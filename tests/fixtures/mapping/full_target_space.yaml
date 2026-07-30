@@ -1,0 +1,16 @@
+schema_version: 1
+name: full-target-space
+address:
+  width_bits: 4
+  granule_bytes: 1
+targets:
+  count: 16
+mapping:
+  m:
+    rows:
+      - [0]
+      - [1]
+      - [2]
+      - [3]
+  l:
+    mode: preserve_high

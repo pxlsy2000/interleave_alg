@@ -1,0 +1,14 @@
+schema_version: 1
+name: metric-target4
+address:
+  width_bits: 4
+  granule_bytes: 1
+targets:
+  count: 4
+mapping:
+  m:
+    rows:
+      - [0]
+      - [1]
+  l:
+    mode: preserve_high

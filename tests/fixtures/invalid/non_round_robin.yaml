@@ -1,0 +1,13 @@
+schema_version: 1
+defaults:
+  accesses: 1
+  window_sizes: [1]
+cases:
+  - name: weighted
+    kind: multi_stream
+    schedule: weighted
+    streams:
+      - name: one
+        base_bytes: 0
+        stride_bytes: 1
+        accesses: 1

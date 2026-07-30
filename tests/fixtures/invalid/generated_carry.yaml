@@ -1,0 +1,9 @@
+schema_version: 1
+defaults:
+  accesses: 2
+  window_sizes: [1]
+cases:
+  - name: carry
+    kind: stride
+    base_bytes: 0xffffffffffffffff
+    stride_bytes: 1
