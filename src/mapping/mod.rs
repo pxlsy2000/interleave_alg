@@ -9,6 +9,7 @@ mod model;
 mod validate;
 mod validation_model;
 
+pub use address::{AddressMapper, AddressMappingError, InvalidMappingError, MappedAddress};
 pub use decode::{MappingDecodeError, decode_mapping};
 pub use model::{
     GranuleBytes, LocalAddressMode, MappingModel, MappingName, TargetCount, XorRow, XorTap,
