@@ -231,7 +231,7 @@ impl AddressMappingError {
             Self::AnalysisFailed => Issue::new(
                 IssueCode::AnalysisFailed,
                 IssuePath::root(),
-                "validated address Mapping failed unexpectedly",
+                "analysis could not be completed",
             ),
         }
     }

@@ -148,6 +148,21 @@ fn maps_bit_63_tap_without_signed_conversion_or_shift_wrap() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn analysis_failure_uses_stable_public_diagnostic() {
+    // Given
+    let error = AddressMappingError::AnalysisFailed;
+
+    // When
+    let issue = error.issue();
+
+    // Then
+    assert_eq!(issue.code(), IssueCode::AnalysisFailed);
+    assert_eq!(issue.path().as_str(), "");
+    assert_eq!(issue.message(), "analysis could not be completed");
+    assert_eq!(issue.severity(), interleave::issue::Severity::Error);
+}
+
 #[derive(Clone, Copy)]
 struct RangeExpectation<'a> {
     index: usize,
