@@ -15,6 +15,26 @@ fn assert_matches_oracle(
         metrics.targets().iter().map(|row| row.count()).sum::<u64>(),
         u64::try_from(targets.len()).map_err(|error| error.to_string())?
     );
+    let maximum_count = counts.iter().copied().max().unwrap_or_default();
+    let maximum_target = counts
+        .iter()
+        .position(|count| *count == maximum_count)
+        .ok_or_else(|| "oracle count vector must not be empty".to_owned())?;
+    assert_eq!(
+        (
+            usize::from(metrics.max_load().target()),
+            metrics.max_load().count(),
+            ratio_tuple(metrics.max_load().ratio()),
+        ),
+        (
+            maximum_target,
+            maximum_count,
+            (
+                u128::from(target_count) * u128::from(maximum_count),
+                u128::try_from(targets.len()).map_err(|error| error.to_string())?,
+            ),
+        )
+    );
     let expected_windows = window_values
         .iter()
         .map(|size| oracle_window(targets, target_count, *size))
@@ -30,6 +50,15 @@ fn assert_matches_oracle(
         })
         .collect::<Vec<_>>();
     assert_eq!(actual_windows, expected_windows);
+    for (actual, expected) in metrics.windows().iter().zip(&expected_windows) {
+        assert_eq!(
+            ratio_tuple(actual.ratio()),
+            (
+                u128::from(target_count) * u128::from(expected.count),
+                u128::from(expected.size),
+            )
+        );
+    }
     assert_eq!(
         OracleRun {
             length: metrics.longest_run().length(),

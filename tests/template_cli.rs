@@ -2,11 +2,7 @@
 
 use std::{fs, process::Command};
 
-use interleave::{
-    input::load_yaml_bytes,
-    mapping::{MappingClassification, decode_mapping, validate_mapping},
-    scenario::{decode_scenario, preflight_scenarios, select_cases},
-};
+use serde_json::Value;
 use tempfile::TempDir;
 
 const MAPPING_TEMPLATE: &str = r"# Interleave Mapping template (schema v1).
@@ -140,25 +136,47 @@ fn template_rejects_an_inaccessible_output_parent() -> TestResult {
 #[test]
 fn generated_templates_feed_the_mapping_and_scenario_preflight_unchanged() -> TestResult {
     // Given
+    let directory = TempDir::new()?;
     let mapping_output = interleave(&["template", "mapping", "--output", "-"])?;
     let scenario_output = interleave(&["template", "scenario", "--output", "-"])?;
     assert_eq!(mapping_output.status.code(), Some(0));
     assert_eq!(scenario_output.status.code(), Some(0));
+    let mapping_path = directory.path().join("mapping.yaml");
+    let scenario_path = directory.path().join("scenario.yaml");
+    fs::write(&mapping_path, &mapping_output.stdout)?;
+    fs::write(&scenario_path, &scenario_output.stdout)?;
+    let mapping_text = mapping_path.to_string_lossy();
+    let scenario_text = scenario_path.to_string_lossy();
 
     // When
-    let mapping_document = load_yaml_bytes(&mapping_output.stdout)?;
-    let mapping = decode_mapping(&mapping_document)?;
-    let validation = validate_mapping(&mapping);
-    let scenario_document = load_yaml_bytes(&scenario_output.stdout)?;
-    let scenario = decode_scenario(&scenario_document)?;
-    let selected = select_cases(&scenario, &[])?;
-    let preflight = preflight_scenarios(&mapping, &selected)?;
+    let validation = interleave(&["validate", "--spec", &mapping_text, "--format", "json"])?;
+    let run = interleave(&[
+        "run",
+        "--spec",
+        &mapping_text,
+        "--scenario",
+        &scenario_text,
+        "--format",
+        "json",
+    ])?;
 
     // Then
+    assert_eq!(validation.status.code(), Some(0));
+    assert!(validation.stderr.is_empty());
+    let validation_report: Value = serde_json::from_slice(&validation.stdout)?;
     assert_eq!(
-        validation.classification(),
-        MappingClassification::ValidNatural
+        validation_report.pointer("/result/classification"),
+        Some(&Value::String("valid_natural".to_owned()))
     );
-    assert_eq!(preflight.tests().len(), 14);
+    assert_eq!(run.status.code(), Some(0));
+    assert!(run.stderr.is_empty());
+    let run_report: Value = serde_json::from_slice(&run.stdout)?;
+    assert_eq!(
+        run_report
+            .pointer("/result/cases")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(14)
+    );
     Ok(())
 }

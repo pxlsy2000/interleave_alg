@@ -32,6 +32,13 @@ fn counts_and_max_load_use_exact_unreduced_formulas() -> MetricsTestResult {
     assert_eq!(metrics.max_load().target(), 0);
     assert_eq!(metrics.max_load().count(), 2);
     assert_eq!(ratio_tuple(metrics.max_load().ratio()), (16, 5));
+    assert_eq!(
+        metrics
+            .windows()
+            .first()
+            .map(|row| (row.count(), ratio_tuple(row.ratio()))),
+        Some((1, (8, 1)))
+    );
     Ok(())
 }
 
@@ -87,10 +94,26 @@ fn same_counts_in_different_order_change_windows_and_runs() -> MetricsTestResult
 
     // Then
     assert_eq!(grouped.targets(), alternating.targets());
+    assert_eq!(ratio_tuple(grouped.max_load().ratio()), (4, 4));
+    assert_eq!(ratio_tuple(alternating.max_load().ratio()), (4, 4));
     assert_eq!(grouped.windows().first().map(|row| row.count()), Some(2));
     assert_eq!(
         alternating.windows().first().map(|row| row.count()),
         Some(1)
+    );
+    assert_eq!(
+        grouped
+            .windows()
+            .first()
+            .map(|row| ratio_tuple(row.ratio())),
+        Some((4, 2))
+    );
+    assert_eq!(
+        alternating
+            .windows()
+            .first()
+            .map(|row| ratio_tuple(row.ratio())),
+        Some((2, 2))
     );
     assert_eq!(grouped.longest_run().length(), 2);
     assert_eq!(alternating.longest_run().length(), 1);

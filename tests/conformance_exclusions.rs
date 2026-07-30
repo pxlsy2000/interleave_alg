@@ -58,21 +58,28 @@ fn unequal_capacity_and_hole_fields_are_both_unknown() -> TestResult {
 #[test]
 fn json_and_toml_roots_never_fall_back_to_other_decoders() -> TestResult {
     // Given
-    let excluded = [
-        ("tests/fixtures/invalid/root.json", "input.yaml_parse"),
-        ("tests/fixtures/invalid/root.toml", "input.invalid_value"),
-    ];
+    let json_source = "tests/fixtures/invalid/root.json";
+    let toml_source = "tests/fixtures/invalid/root.toml";
 
-    for (source, code) in excluded {
-        // When
-        let output = interleave(&["validate", "--spec", source, "--format", "json"])?;
+    // When
+    let json_output = interleave(&["validate", "--spec", json_source, "--format", "json"])?;
+    let toml_output = interleave(&["validate", "--spec", toml_source, "--format", "json"])?;
 
-        // Then
-        assert_eq!(output.status.code(), Some(2));
-        let report = json(&output)?;
-        assert_eq!(at(&report, "/errors/0/code")?, code);
-        assert_eq!(at(&report, "/result")?, &serde_json::Value::Null);
-    }
+    // Then
+    assert_eq!(json_output.status.code(), Some(2));
+    let json_report = json(&json_output)?;
+    assert_eq!(at(&json_report, "/errors/0/code")?, "input.yaml_parse");
+    assert_eq!(at(&json_report, "/result")?, &serde_json::Value::Null);
+
+    assert_eq!(toml_output.status.code(), Some(2));
+    let toml_report = json(&toml_output)?;
+    assert_eq!(at(&toml_report, "/errors/0/code")?, "input.invalid_value");
+    assert_eq!(at(&toml_report, "/errors/0/path")?, "");
+    assert_eq!(
+        at(&toml_report, "/errors/0/message")?,
+        "expected mapping, observed \"schema_version=1 name=\\\"t\\\" [address] width_bits=1 granule_bytes=1 [targets] count=1 [mapping] m.rows=[] l.mode=\\\"preserve_high\\\"\""
+    );
+    assert_eq!(at(&toml_report, "/result")?, &serde_json::Value::Null);
     Ok(())
 }
 

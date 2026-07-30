@@ -78,6 +78,43 @@ fn maps_valid_non_natural_explicit_local_rows() -> TestResult {
 }
 
 #[test]
+fn explicit_local_rows_preserve_every_nontrivial_byte_offset() -> TestResult {
+    // Given
+    let local_rows = [0b10];
+    let fixture = MappingFixture {
+        address_width: 4,
+        granule_bytes: 4,
+        target_rows: &[0b01],
+        local_rows: LocalRows::Explicit(&local_rows),
+    };
+    let mapping = decode(&fixture.source())?;
+    let mapper = AddressMapper::try_new(&mapping)
+        .map_err(|validation| validation.classification().as_str().to_owned())?;
+
+    for input in 0_u64..16 {
+        // When
+        let input_text = input.to_string();
+        let row = mapper
+            .map_address(address(&input_text)?)
+            .map_err(|error| error.to_string())?;
+
+        // Then
+        let line = input >> 2;
+        let byte_offset = input & 0b11;
+        let local_line = line >> 1;
+        let target = u16::from(line & 1 != 0);
+        assert_eq!(row.target(), target);
+        assert_eq!(row.byte_offset(), byte_offset);
+        assert_eq!(row.local_line_address(), local_line);
+        assert_eq!(
+            row.local_byte_address(),
+            (local_line << 2) | byte_offset
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn refuses_mathematically_invalid_mapping_before_address_work() -> TestResult {
     // Given
     let local_rows = [0b001, 0b100];

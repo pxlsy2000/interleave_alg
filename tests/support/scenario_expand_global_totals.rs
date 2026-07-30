@@ -156,6 +156,34 @@ fn exact_window_work_is_the_fifth_global_gate() -> ScenarioExpandResult {
 }
 
 #[test]
+fn single_maximum_access_descriptor_with_1024_windows_fails_exact_work_sum(
+) -> ScenarioExpandResult {
+    // Given
+    let mapping = decode_expand_mapping(32, 1)?;
+    let windows = (1..=1_024_u32)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!(
+        "schema_version: 1\ndefaults: {{ accesses: 10000000, window_sizes: [{windows}] }}\n\
+         cases:\n  - {{ name: maximum-work, kind: stride, base_bytes: 0, stride_bytes: 0 }}\n"
+    );
+    let scenario = decode_expand_scenario(&source)?;
+    let selected = select_cases(&scenario, &[]).map_err(|error| error.to_string())?;
+
+    // When
+    let error =
+        preflight_scenarios(&mapping, &selected).expect_err("exact window work must fail");
+
+    // Then
+    assert_eq!(
+        rendered_issues(error.issues()),
+        ["scenario.invalid|cases|expected sum(Q*K) <= 100000000, observed 10240000000"]
+    );
+    Ok(())
+}
+
+#[test]
 fn effective_window_count_at_limit_passes_and_plus_one_fails() -> ScenarioExpandResult {
     // Given
     let mapping = decode_expand_mapping(32, 1)?;

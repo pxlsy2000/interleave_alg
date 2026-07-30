@@ -59,7 +59,7 @@ fn text_parse_schema_math_and_preflight_failures_use_stderr_only() -> TestResult
         (
             vec!["validate", "--spec", "tests/fixtures/invalid/root.json"],
             2,
-            "input.yaml_parse",
+            "ERROR [input.yaml_parse]: invalid YAML syntax",
         ),
         (
             vec![
@@ -68,7 +68,7 @@ fn text_parse_schema_math_and_preflight_failures_use_stderr_only() -> TestResult
                 "tests/fixtures/invalid/duplicate_tap.yaml",
             ],
             2,
-            "input.invalid_value",
+            "ERROR [input.invalid_value] mapping.m.rows[0]: expected unique values, observed sequence",
         ),
         (
             vec![
@@ -77,7 +77,7 @@ fn text_parse_schema_math_and_preflight_failures_use_stderr_only() -> TestResult
                 "tests/fixtures/invalid/non_bijective.yaml",
             ],
             2,
-            "mapping.non_bijective",
+            "ERROR [mapping.non_bijective] mapping.l.rows: rank(F)=3, expected 4",
         ),
         (
             vec![
@@ -88,11 +88,11 @@ fn text_parse_schema_math_and_preflight_failures_use_stderr_only() -> TestResult
                 "tests/fixtures/invalid/generated_carry.yaml",
             ],
             3,
-            "address.out_of_range",
+            "ERROR [address.out_of_range] cases[0]: address 0x10000000000000000 is outside the 64-bit range",
         ),
     ];
 
-    for (arguments, exit, code) in cases {
+    for (arguments, exit, diagnostic) in cases {
         // When
         let output = interleave(&arguments)?;
 
@@ -100,8 +100,8 @@ fn text_parse_schema_math_and_preflight_failures_use_stderr_only() -> TestResult
         assert_eq!(output.status.code(), Some(exit));
         assert!(output.stdout.is_empty());
         let stderr = String::from_utf8(output.stderr)?;
-        assert!(stderr.contains(&format!("ERROR [{code}]")));
         assert!(stderr.ends_with('\n'));
+        assert_eq!(stderr.lines().last(), Some(diagnostic));
     }
     Ok(())
 }
