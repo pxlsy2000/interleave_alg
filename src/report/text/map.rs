@@ -6,7 +6,7 @@ use super::{
 };
 
 pub(super) fn render(
-    output: &mut String,
+    output: &mut impl Write,
     result: &MapResult,
     warnings: &[ReportIssue],
     errors: &[ReportIssue],

@@ -6,15 +6,19 @@ use std::{
 
 use crate::{
     cli::OutputFormat,
+    input::limits::MAX_REPORT_BYTES,
     io::{
         atomic_output::{
-            OutputDestination, OutputRequest, format_stderr_issue, preflight_report_output,
-            write_report,
+            OutputDestination, OutputError, OutputRequest, format_stderr_issue,
+            preflight_report_output, write_report,
         },
         input::InputIdentity,
     },
     issue::{Issue, IssueCode, IssuePath},
-    report::{Report, TextReportStyle, render_json, render_text},
+    report::{
+        JsonRenderError, Report, TextRenderError, TextReportStyle, render_json_with_limit,
+        render_text_with_limit,
+    },
 };
 
 use super::error::{ExecutionError, UsageError};
@@ -52,6 +56,12 @@ pub(super) struct ReportOutput<'path> {
     style: TextReportStyle,
 }
 
+struct ReportWrite<'report, 'identity> {
+    report: &'report Report,
+    identities: &'identity [InputIdentity],
+    exit: u8,
+}
+
 impl<'path> ReportOutput<'path> {
     pub(super) const fn new(
         format: OutputFormat,
@@ -76,17 +86,58 @@ impl<'path> ReportOutput<'path> {
         identities: &[InputIdentity],
         exit: u8,
     ) -> Result<u8, ExecutionError> {
+        let mut stdout = io::stdout().lock();
+        self.write_to(
+            &ReportWrite {
+                report,
+                identities,
+                exit,
+            },
+            MAX_REPORT_BYTES,
+            &mut stdout,
+        )
+    }
+
+    fn write_to(
+        self,
+        write: &ReportWrite<'_, '_>,
+        limit: usize,
+        stdout: &mut impl io::Write,
+    ) -> Result<u8, ExecutionError> {
         let rendered = match self.format {
-            OutputFormat::Text => render_text(report, self.style)?,
-            OutputFormat::Json => render_json(report)?,
+            OutputFormat::Text => render_text_with_limit(write.report, self.style, limit)
+                .map_err(render_text_error)?,
+            OutputFormat::Json => {
+                render_json_with_limit(write.report, limit).map_err(render_json_error)?
+            }
         };
-        if self.format == OutputFormat::Text && exit != 0 {
+        if self.format == OutputFormat::Text && write.exit != 0 {
             write_business_text(&rendered)?;
-            return Ok(exit);
+            return Ok(write.exit);
         }
-        let request = OutputRequest::new(self.output.destination(), self.output.force, identities);
-        write_report(&request, &rendered, &mut io::stdout().lock())?;
-        Ok(exit)
+        let request = OutputRequest::new(
+            self.output.destination(),
+            self.output.force,
+            write.identities,
+        );
+        write_report(&request, &rendered, stdout)?;
+        Ok(write.exit)
+    }
+}
+
+fn render_json_error(error: JsonRenderError) -> ExecutionError {
+    match error {
+        JsonRenderError::OutputTooLarge(_) => OutputError::too_large().into(),
+        JsonRenderError::Serialization { .. } => error.into(),
+    }
+}
+
+fn render_text_error(error: TextRenderError) -> ExecutionError {
+    match error {
+        TextRenderError::OutputTooLarge(_) => OutputError::too_large().into(),
+        TextRenderError::VerboseRequiresValidateCommand | TextRenderError::Formatting => {
+            error.into()
+        }
     }
 }
 
@@ -124,3 +175,7 @@ pub(super) fn write_business_text(bytes: &[u8]) -> Result<(), ExecutionError> {
     stderr.write_all(bytes).map_err(ExecutionError::Stderr)?;
     stderr.flush().map_err(ExecutionError::Stderr)
 }
+
+#[cfg(test)]
+#[path = "output_tests.rs"]
+mod tests;

@@ -3,7 +3,12 @@ use serde::{
     ser::{Error as _, SerializeStruct},
 };
 
-use super::serialize_complete;
+use crate::{
+    issue::{Issue, IssueCode, IssuePath},
+    report::{Report, ReportCommand},
+};
+
+use super::{JsonRenderError, render_json, render_json_with_limit, serialize_complete};
 
 struct FailsAfterPrefix;
 
@@ -28,4 +33,31 @@ fn serialization_failure_exposes_no_partial_buffer() {
 
     // Then
     assert!(result.is_err());
+}
+
+#[test]
+fn json_report_accepts_the_exact_limit_and_rejects_the_next_byte() {
+    // Given
+    let report = failure_report();
+    let expected = render_json(&report).expect("fixture report should render");
+
+    // When
+    let exact = render_json_with_limit(&report, expected.len());
+    let too_small = render_json_with_limit(&report, expected.len() - 1);
+
+    // Then
+    assert_eq!(exact.expect("the exact byte cap should succeed"), expected);
+    assert!(matches!(too_small, Err(JsonRenderError::OutputTooLarge(_))));
+}
+
+fn failure_report() -> Report {
+    Report::failure(
+        ReportCommand::Validate,
+        vec![Issue::new(
+            IssueCode::InputInvalidValue,
+            IssuePath::root(),
+            "fixture failure",
+        )],
+    )
+    .expect("fixture issue is an error")
 }

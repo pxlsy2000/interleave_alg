@@ -12,7 +12,7 @@ use super::{
 };
 
 pub(super) fn render(
-    output: &mut String,
+    output: &mut impl Write,
     result: &ValidateResult,
     warnings: &[ReportIssue],
     errors: &[ReportIssue],
@@ -46,7 +46,7 @@ pub(super) fn render(
     render_issues(output, "ERROR", errors)
 }
 
-fn render_matrices(output: &mut String, matrices: &MappingMatrixReport) -> fmt::Result {
+fn render_matrices(output: &mut impl Write, matrices: &MappingMatrixReport) -> fmt::Result {
     render_labeled_matrix(output, "M", "t", &matrices.target, matrices.line_bits)?;
     render_labeled_matrix(output, "L", "l", &matrices.local, matrices.line_bits)?;
     let rows = combined_rows(matrices.target.len(), matrices.local.len());
@@ -69,7 +69,7 @@ fn render_matrices(output: &mut String, matrices: &MappingMatrixReport) -> fmt::
 }
 
 fn render_labeled_matrix(
-    output: &mut String,
+    output: &mut impl Write,
     name: &str,
     label: &str,
     rows: &[Vec<bool>],
@@ -83,27 +83,27 @@ fn render_labeled_matrix(
     )?;
     for (index, row) in rows.iter().enumerate() {
         write!(output, "  {label}{index:<3} ")?;
-        render_bits(output, row);
+        render_bits(output, row)?;
     }
     writeln!(output)
 }
 
-fn render_unlabeled_rows(output: &mut String, rows: &[Vec<bool>]) -> fmt::Result {
+fn render_unlabeled_rows(output: &mut impl Write, rows: &[Vec<bool>]) -> fmt::Result {
     for row in rows {
         write!(output, "  ")?;
-        render_bits(output, row);
+        render_bits(output, row)?;
     }
     Ok(())
 }
 
-fn render_bits(output: &mut String, row: &[bool]) {
+fn render_bits(output: &mut impl Write, row: &[bool]) -> fmt::Result {
     for (index, bit) in row.iter().enumerate() {
         if index != 0 {
-            output.push(' ');
+            output.write_char(' ')?;
         }
-        output.push(if *bit { '1' } else { '0' });
+        output.write_char(if *bit { '1' } else { '0' })?;
     }
-    output.push('\n');
+    output.write_char('\n')
 }
 
 fn columns(count: usize) -> String {
@@ -127,7 +127,7 @@ fn combined_rows(targets: usize, locals: usize) -> String {
     }
 }
 
-fn render_check(output: &mut String, check: &MappingCheck) -> fmt::Result {
+fn render_check(output: &mut impl Write, check: &MappingCheck) -> fmt::Result {
     let prefix = match check.status() {
         CheckStatus::Pass => "PASS",
         CheckStatus::Warning => "WARN",
@@ -177,7 +177,7 @@ fn render_check(output: &mut String, check: &MappingCheck) -> fmt::Result {
 }
 
 fn render_natural_check(
-    output: &mut String,
+    output: &mut impl Write,
     prefix: &str,
     actual: u8,
     expected: u8,

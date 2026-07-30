@@ -1,14 +1,28 @@
+use std::io::Write as _;
+
 use serde::Serialize;
 use thiserror::Error;
 
-use super::Report;
+use crate::input::limits::MAX_REPORT_BYTES;
 
-/// Failure to produce a complete canonical JSON document.
+use super::{
+    Report,
+    bounded::{BoundedBytes, OutputTooLarge},
+};
+
+/// Failure to produce a complete bounded canonical JSON document.
 #[derive(Debug, Error)]
-#[error("JSON report could not be rendered")]
-pub struct JsonRenderError {
-    #[source]
-    source: serde_json::Error,
+pub enum JsonRenderError {
+    /// JSON serialization failed for a reason other than the report byte cap.
+    #[error("JSON report could not be rendered")]
+    Serialization {
+        /// Original serialization failure.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// The rendered report attempted to exceed the v1 byte cap.
+    #[error(transparent)]
+    OutputTooLarge(#[from] OutputTooLarge),
 }
 
 /// Renders one complete pretty JSON document with exactly one trailing LF.
@@ -23,10 +37,28 @@ pub fn render_json(report: &Report) -> Result<Vec<u8>, JsonRenderError> {
 }
 
 fn serialize_complete(value: &impl Serialize) -> Result<Vec<u8>, JsonRenderError> {
-    let mut rendered =
-        serde_json::to_vec_pretty(value).map_err(|source| JsonRenderError { source })?;
-    rendered.push(b'\n');
-    Ok(rendered)
+    serialize_with_limit(value, MAX_REPORT_BYTES)
+}
+
+pub(super) fn render_json_with_limit(
+    report: &Report,
+    limit: usize,
+) -> Result<Vec<u8>, JsonRenderError> {
+    serialize_with_limit(report, limit)
+}
+
+fn serialize_with_limit(value: &impl Serialize, limit: usize) -> Result<Vec<u8>, JsonRenderError> {
+    let mut rendered = BoundedBytes::new(limit);
+    if let Err(source) = serde_json::to_writer_pretty(&mut rendered, value) {
+        if rendered.exceeded() {
+            return Err(OutputTooLarge.into());
+        }
+        return Err(JsonRenderError::Serialization { source });
+    }
+    if rendered.write_all(b"\n").is_err() {
+        return Err(OutputTooLarge.into());
+    }
+    rendered.finish().map_err(Into::into)
 }
 
 #[cfg(test)]

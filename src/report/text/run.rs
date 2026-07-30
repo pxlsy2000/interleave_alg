@@ -6,7 +6,7 @@ use super::{
 };
 
 pub(super) fn render(
-    output: &mut String,
+    output: &mut impl Write,
     result: &RunResult,
     warnings: &[ReportIssue],
 ) -> fmt::Result {
@@ -20,7 +20,11 @@ pub(super) fn render(
     Ok(())
 }
 
-fn render_case(output: &mut String, case: &RunCaseResult, warnings: &[ReportIssue]) -> fmt::Result {
+fn render_case(
+    output: &mut impl Write,
+    case: &RunCaseResult,
+    warnings: &[ReportIssue],
+) -> fmt::Result {
     writeln!(output, "Case: {}", safe_field(&case.case_id))?;
     writeln!(output, "Source case: {}", safe_field(&case.source_case))?;
     writeln!(output, "Accesses: {}", case.accesses.get())?;

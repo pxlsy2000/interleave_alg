@@ -76,6 +76,18 @@ impl OutputError {
         }
     }
 
+    pub(crate) fn too_large() -> Self {
+        Self {
+            issue: Some(issue(
+                IssueCode::OutputTooLarge,
+                "report exceeds v1 limit 268435456 bytes",
+            )),
+            source: None,
+            aliases_input: false,
+            message: "report exceeds v1 limit 268435456 bytes",
+        }
+    }
+
     /// Returns the stable issue, or `None` for command-line usage.
     pub const fn issue(&self) -> Option<&Issue> {
         self.issue.as_ref()
