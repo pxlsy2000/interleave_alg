@@ -20,14 +20,30 @@ pub(super) fn render_issues(
     issues: &[ReportIssue],
 ) -> fmt::Result {
     for issue in issues {
-        if issue.path.is_empty() {
-            writeln!(output, "{label} [{}]: {}", issue.code, issue.message)?;
-        } else {
-            writeln!(
-                output,
-                "{label} [{}] {}: {}",
-                issue.code, issue.path, issue.message
-            )?;
+        write!(output, "{label} [{}]", issue.code)?;
+        if !issue.path.is_empty() {
+            output.push(' ');
+            write_terminal_safe(output, &issue.path)?;
+        }
+        output.push_str(": ");
+        write_terminal_safe(output, &issue.message)?;
+        output.push('\n');
+    }
+    Ok(())
+}
+
+fn write_terminal_safe(output: &mut String, value: &str) -> fmt::Result {
+    for character in value.chars() {
+        match character {
+            '\u{0008}' => output.push_str("\\b"),
+            '\u{0009}' => output.push_str("\\t"),
+            '\u{000a}' => output.push_str("\\n"),
+            '\u{000c}' => output.push_str("\\f"),
+            '\u{000d}' => output.push_str("\\r"),
+            '\u{0000}'..='\u{001f}' | '\u{007f}'..='\u{009f}' | '\u{2028}' | '\u{2029}' => {
+                write!(output, "\\u{:04x}", u32::from(character))?;
+            }
+            _ => output.push(character),
         }
     }
     Ok(())

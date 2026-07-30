@@ -193,6 +193,33 @@ fn text_is_control_free_deterministic_and_single_lf_terminated() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn public_issue_fields_cannot_inject_terminal_controls_or_rows() -> TestResult {
+    // Given
+    let issue = Issue::new(
+        IssueCode::ScenarioInvalid,
+        IssuePath::root().field("literal\\n\u{1b}\n\r\u{85}\u{2028}\u{2029}path"),
+        "literal\\n\u{1b}\n\r\u{85}\u{2028}\u{2029}Targets\n0 forged",
+    );
+    let report = Report::failure(ReportCommand::Run, vec![issue])?;
+
+    // When
+    let rendered = render_text(&report, TextReportStyle::Standard)?;
+
+    // Then
+    let text = std::str::from_utf8(&rendered)?;
+    assert_eq!(text.lines().count(), 2);
+    assert!(text.contains("literal\\n\\u001b\\n\\r\\u0085\\u2028\\u2029"));
+    assert!(!text.contains("literal\\\\n"));
+    assert!(!rendered.contains(&0x1b));
+    assert!(!text.contains('\u{85}'));
+    assert!(!text.contains('\u{2028}'));
+    assert!(!text.contains('\u{2029}'));
+    assert!(rendered.ends_with(b"\n"));
+    assert!(!rendered.ends_with(b"\n\n"));
+    Ok(())
+}
+
 fn assert_golden(actual: &[u8], expected: &str) -> TestResult {
     assert_eq!(std::str::from_utf8(actual)?, expected);
     Ok(())
