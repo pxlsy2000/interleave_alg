@@ -1,0 +1,15 @@
+schema_version: 1
+name: run-non-natural
+address:
+  width_bits: 8
+  granule_bytes: 64
+targets:
+  count: 2
+mapping:
+  m:
+    rows:
+      - [1]
+  l:
+    mode: explicit
+    rows:
+      - [0]

@@ -56,6 +56,7 @@ fn every_command_help_path_uses_stdout() -> TestResult {
         &["template", "mapping", "--help"],
         &["template", "scenario", "--help"],
         &["validate", "--help"],
+        &["run", "--help"],
     ];
 
     // When
@@ -102,6 +103,7 @@ fn every_command_version_path_uses_the_authoritative_root_version_line() -> Test
         &["template", "mapping", "--version"],
         &["template", "scenario", "--version"],
         &["validate", "--version"],
+        &["run", "--version"],
     ];
 
     // When
@@ -127,6 +129,8 @@ fn missing_and_extra_arguments_are_usage_failures() -> TestResult {
         &["template"],
         &["template", "mapping"],
         &["validate"],
+        &["run"],
+        &["run", "--spec", "mapping.yaml"],
         &["validate", "--spec", "missing.yaml", "extra"],
         &["unknown"],
     ];
@@ -169,6 +173,15 @@ fn duplicate_singleton_options_are_usage_failures_before_input_read() -> TestRes
             "--verbose",
         ],
         &["validate", "--spec", "missing.yaml", "--force", "--force"],
+        &[
+            "run",
+            "--spec",
+            "mapping.yaml",
+            "--scenario",
+            "a.yaml",
+            "--scenario",
+            "b.yaml",
+        ],
         &["template", "mapping", "--output", "a", "--output", "b"],
         &["template", "mapping", "--output", "a", "--force", "--force"],
     ];

@@ -11,12 +11,16 @@ pub(super) enum UsageError {
     VerboseJson,
     #[error("the --force option requires a path-valued --output")]
     ForceRequiresPathOutput,
+    #[error("the Mapping and Scenario cannot both use standard input")]
+    MultipleStdinInputs,
 }
 
 #[derive(Debug, Error)]
 pub(super) enum ExecutionError {
     #[error(transparent)]
     Input(#[from] InputReadError),
+    #[error(transparent)]
+    ScenarioInput(InputReadError),
     #[error(transparent)]
     Output(#[from] OutputError),
     #[error(transparent)]
@@ -35,6 +39,13 @@ impl ExecutionError {
             Self::Input(error) => {
                 if error.observed_raw_bytes().is_some() {
                     2
+                } else {
+                    1
+                }
+            }
+            Self::ScenarioInput(error) => {
+                if error.observed_raw_bytes().is_some() {
+                    3
                 } else {
                     1
                 }

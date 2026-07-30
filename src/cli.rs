@@ -29,6 +29,8 @@ pub enum CliCommand {
     Validate(ValidateArgs),
     /// Map byte addresses through one Mapping specification.
     Map(MapArgs),
+    /// Analyze deterministic Scenario stimuli through one Mapping specification.
+    Run(RunArgs),
 }
 
 #[derive(Debug, Args)]
@@ -102,6 +104,34 @@ pub struct MapArgs {
     /// Byte addresses in exact command-line order.
     #[arg(required = true, num_args = 1.., allow_negative_numbers = true)]
     pub addresses: Vec<AddressOperand>,
+    /// Report encoding.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        action = ArgAction::Set
+    )]
+    pub format: OutputFormat,
+    /// Report destination path, or - for standard output.
+    #[arg(long, action = ArgAction::Set)]
+    pub output: Option<PathBuf>,
+    /// Replace an existing regular-file destination.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+/// Scenario analysis options.
+pub struct RunArgs {
+    /// Mapping YAML source path, or - for standard input.
+    #[arg(long, required = true, action = ArgAction::Set)]
+    pub spec: PathBuf,
+    /// Scenario YAML source path, or - for standard input.
+    #[arg(long, required = true, action = ArgAction::Set)]
+    pub scenario: PathBuf,
+    /// Exact case name to select; repeat to select multiple cases.
+    #[arg(long = "case", action = ArgAction::Append)]
+    pub cases: Vec<String>,
     /// Report encoding.
     #[arg(
         long,

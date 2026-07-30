@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "command": "run",
+  "status": "pass",
+  "warnings": [],
+  "errors": [],
+  "result": {
+    "mapping_name": "example-4-target",
+    "mapping_classification": "valid_natural",
+    "cases": [
+      {
+        "case_id": "sequential",
+        "source_case": "sequential",
+        "accesses": 4096,
+        "targets": [
+          {
+            "target": 0,
+            "count": 1024,
+            "share": {
+              "numerator": 1024,
+              "denominator": 4096,
+              "decimal": "0.250000"
+            }
+          },
+          {
+            "target": 1,
+            "count": 1024,
+            "share": {
+              "numerator": 1024,
+              "denominator": 4096,
+              "decimal": "0.250000"
+            }
+          },
+          {
+            "target": 2,
+            "count": 1024,
+            "share": {
+              "numerator": 1024,
+              "denominator": 4096,
+              "decimal": "0.250000"
+            }
+          },
+          {
+            "target": 3,
+            "count": 1024,
+            "share": {
+              "numerator": 1024,
+              "denominator": 4096,
+              "decimal": "0.250000"
+            }
+          }
+        ],
+        "max_load": {
+          "target": 0,
+          "count": 1024,
+          "ratio": {
+            "numerator": 4096,
+            "denominator": 4096,
+            "decimal": "1.000000"
+          }
+        },
+        "windows": [
+          {
+            "size": 4,
+            "target": 1,
+            "start_index": 13,
+            "count": 2,
+            "ratio": {
+              "numerator": 8,
+              "denominator": 4,
+              "decimal": "2.000000"
+            }
+          },
+          {
+            "size": 16,
+            "target": 1,
+            "start_index": 1,
+            "count": 5,
+            "ratio": {
+              "numerator": 20,
+              "denominator": 16,
+              "decimal": "1.250000"
+            }
+          },
+          {
+            "size": 64,
+            "target": 1,
+            "start_index": 193,
+            "count": 17,
+            "ratio": {
+              "numerator": 68,
+              "denominator": 64,
+              "decimal": "1.062500"
+            }
+          }
+        ],
+        "longest_run": {
+          "length": 2,
+          "target": 2,
+          "start_index": 31
+        }
+      }
+    ]
+  }
+}

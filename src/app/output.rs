@@ -98,7 +98,9 @@ pub(super) fn write_usage_error(error: UsageError) -> std::process::ExitCode {
 
 pub(super) fn write_execution_error(error: &ExecutionError) {
     let issue = match error {
-        ExecutionError::Input(input) => input.issue().clone(),
+        ExecutionError::Input(input) | ExecutionError::ScenarioInput(input) => {
+            input.issue().clone()
+        }
         ExecutionError::Output(output) => output.issue().map_or_else(
             || Issue::new(IssueCode::OutputIo, IssuePath::root(), output.to_string()),
             Clone::clone,
