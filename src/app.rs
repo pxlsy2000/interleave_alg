@@ -1,6 +1,8 @@
 //! Process-boundary orchestration for implemented commands.
 
 mod error;
+mod input;
+mod map;
 mod output;
 mod validate;
 
@@ -36,6 +38,7 @@ pub fn run() -> ExitCode {
     let result = match cli.command {
         CliCommand::Template(arguments) => execute_template(arguments.kind),
         CliCommand::Validate(arguments) => validate::execute(&arguments),
+        CliCommand::Map(arguments) => map::execute(&arguments),
     };
     match result {
         Ok(exit) => ExitCode::from(exit),
@@ -58,6 +61,9 @@ fn validate_usage(cli: &Cli) -> Result<(), UsageError> {
             if arguments.verbose && arguments.format == cli::OutputFormat::Json {
                 return Err(UsageError::VerboseJson);
             }
+            OutputOptions::new(arguments.output.as_deref(), arguments.force).validate()
+        }
+        CliCommand::Map(arguments) => {
             OutputOptions::new(arguments.output.as_deref(), arguments.force).validate()
         }
     }

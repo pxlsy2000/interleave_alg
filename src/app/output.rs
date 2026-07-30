@@ -5,8 +5,16 @@ use std::{
 };
 
 use crate::{
-    io::atomic_output::{OutputDestination, format_stderr_issue},
+    cli::OutputFormat,
+    io::{
+        atomic_output::{
+            OutputDestination, OutputRequest, format_stderr_issue, preflight_report_output,
+            write_report,
+        },
+        input::InputIdentity,
+    },
     issue::{Issue, IssueCode, IssuePath},
+    report::{Report, TextReportStyle, render_json, render_text},
 };
 
 use super::error::{ExecutionError, UsageError};
@@ -34,6 +42,51 @@ impl<'path> OutputOptions<'path> {
             Some(path) if path.as_os_str() != OsStr::new("-") => OutputDestination::Path(path),
             None | Some(_) => OutputDestination::Stdout,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ReportOutput<'path> {
+    format: OutputFormat,
+    output: OutputOptions<'path>,
+    style: TextReportStyle,
+}
+
+impl<'path> ReportOutput<'path> {
+    pub(super) const fn new(
+        format: OutputFormat,
+        output: OutputOptions<'path>,
+        style: TextReportStyle,
+    ) -> Self {
+        Self {
+            format,
+            output,
+            style,
+        }
+    }
+
+    pub(super) fn preflight(self, identities: &[InputIdentity]) -> Result<(), ExecutionError> {
+        let request = OutputRequest::new(self.output.destination(), self.output.force, identities);
+        preflight_report_output(&request).map_err(ExecutionError::from)
+    }
+
+    pub(super) fn write(
+        self,
+        report: &Report,
+        identities: &[InputIdentity],
+        exit: u8,
+    ) -> Result<u8, ExecutionError> {
+        let rendered = match self.format {
+            OutputFormat::Text => render_text(report, self.style)?,
+            OutputFormat::Json => render_json(report)?,
+        };
+        if self.format == OutputFormat::Text && exit != 0 {
+            write_business_text(&rendered)?;
+            return Ok(exit);
+        }
+        let request = OutputRequest::new(self.output.destination(), self.output.force, identities);
+        write_report(&request, &rendered, &mut io::stdout().lock())?;
+        Ok(exit)
     }
 }
 

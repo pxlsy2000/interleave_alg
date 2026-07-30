@@ -27,6 +27,8 @@ pub enum CliCommand {
     Template(TemplateArgs),
     /// Validate one Mapping specification.
     Validate(ValidateArgs),
+    /// Map byte addresses through one Mapping specification.
+    Map(MapArgs),
 }
 
 #[derive(Debug, Args)]
@@ -89,6 +91,31 @@ pub struct ValidateArgs {
     /// Include complete Mapping matrices in text output.
     #[arg(long, action = ArgAction::SetTrue)]
     pub verbose: bool,
+}
+
+#[derive(Debug, Args)]
+/// Address Mapping options.
+pub struct MapArgs {
+    /// Mapping YAML source path, or - for standard input.
+    #[arg(long, required = true, action = ArgAction::Set)]
+    pub spec: PathBuf,
+    /// Byte addresses in exact command-line order.
+    #[arg(required = true, num_args = 1.., allow_negative_numbers = true)]
+    pub addresses: Vec<String>,
+    /// Report encoding.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        action = ArgAction::Set
+    )]
+    pub format: OutputFormat,
+    /// Report destination path, or - for standard output.
+    #[arg(long, action = ArgAction::Set)]
+    pub output: Option<PathBuf>,
+    /// Replace an existing regular-file destination.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub force: bool,
 }
 
 impl Cli {
