@@ -44,6 +44,10 @@ impl GenericInteger {
 pub struct Address(u128);
 
 impl Address {
+    pub(crate) const fn from_u128(value: u128) -> Self {
+        Self(value)
+    }
+
     /// Parses the exact v1 address grammar, including between-digit underscores.
     pub fn parse(lexeme: &str) -> Result<Self, AddressError> {
         let (digits, radix) = address_digits(lexeme)?;

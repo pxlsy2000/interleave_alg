@@ -10,6 +10,8 @@ mod expand_model;
 mod expand_prepare;
 mod expand_totals;
 mod generate;
+#[cfg(test)]
+mod generate_tests;
 mod model;
 mod model_kind;
 mod select;
@@ -19,6 +21,7 @@ pub use expand::{ScenarioPreflightError, preflight_scenarios};
 pub use expand_model::{
     ConcreteStimulus, ConcreteTestDescriptor, LinearAccess, ScenarioPreflightPlan, StreamAccess,
 };
+pub use generate::{ScenarioGenerationError, generate_target_sequence};
 pub use model::{
     AccessCount, CaseName, ScenarioCase, ScenarioCaseKind, ScenarioDefaults, ScenarioModel,
     Schedule, StreamName, WindowSize,
