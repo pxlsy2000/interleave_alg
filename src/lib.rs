@@ -8,7 +8,8 @@ pub mod io;
 pub mod issue;
 /// Strict Mapping schema and domain types.
 pub mod mapping;
-mod metrics;
+/// Exact per-test congestion analysis.
+pub mod metrics;
 mod report;
 /// Strict Scenario schema and domain types.
 pub mod scenario;
