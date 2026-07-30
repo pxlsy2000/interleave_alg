@@ -22,19 +22,8 @@ pub(super) fn write_path(
     output: &Path,
     report: &[u8],
 ) -> Result<(), OutputError> {
-    let (parent, name) = parent_and_name(output)?;
-    let directory = fs::open(
-        parent,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(errno_io)?;
-    let initial = inspect(&directory, name, request.input_identities())?;
-    if let TargetState::Regular { aliases_input } = initial
-        && !request.force()
-    {
-        return Err(OutputError::exists(aliases_input));
-    }
+    let (directory, name, initial) = inspect_path(request, output)?;
+    accept_initial_target(request, initial)?;
 
     let mut temporary = create_temp(&directory, request.fault())?;
     temporary.write_and_close(report, request.fault())?;
@@ -49,6 +38,38 @@ pub(super) fn write_path(
         commit_noreplace(&directory, temporary.name(), name, request.fault())?;
     }
     temporary.commit();
+    Ok(())
+}
+
+pub(super) fn preflight_path(request: OutputRequest<'_>, output: &Path) -> Result<(), OutputError> {
+    let (_directory, _name, initial) = inspect_path(request, output)?;
+    accept_initial_target(request, initial)
+}
+
+fn inspect_path<'output>(
+    request: OutputRequest<'_>,
+    output: &'output Path,
+) -> Result<(OwnedFd, &'output OsStr, TargetState), OutputError> {
+    let (parent, name) = parent_and_name(output)?;
+    let directory = fs::open(
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(errno_io)?;
+    let initial = inspect(&directory, name, request.input_identities())?;
+    Ok((directory, name, initial))
+}
+
+fn accept_initial_target(
+    request: OutputRequest<'_>,
+    initial: TargetState,
+) -> Result<(), OutputError> {
+    if let TargetState::Regular { aliases_input } = initial
+        && !request.force()
+    {
+        return Err(OutputError::exists(aliases_input));
+    }
     Ok(())
 }
 

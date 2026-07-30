@@ -103,6 +103,24 @@ pub fn write_report(
     }
 }
 
+/// Checks the report destination without creating a temporary file.
+///
+/// Named destinations are checked again by [`write_report`] immediately before
+/// the transaction, so this phase establishes ordering without weakening the
+/// commit-time race checks.
+pub fn preflight_report_output(request: &OutputRequest<'_>) -> Result<(), OutputError> {
+    match request.destination {
+        OutputDestination::Stdout => {
+            if request.force() {
+                Err(OutputError::usage())
+            } else {
+                Ok(())
+            }
+        }
+        OutputDestination::Path(path) => linux::preflight_path(*request, path),
+    }
+}
+
 fn write_stdout(
     request: OutputRequest<'_>,
     report: &[u8],

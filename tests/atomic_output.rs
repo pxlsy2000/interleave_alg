@@ -6,5 +6,7 @@ mod core;
 mod faults;
 #[path = "support/atomic_output_identity.rs"]
 mod identity;
+#[path = "support/atomic_output_preflight.rs"]
+mod preflight;
 #[path = "support/atomic_output_special.rs"]
 mod special;

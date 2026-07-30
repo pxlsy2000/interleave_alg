@@ -1,7 +1,7 @@
 #![doc = "Internal implementation surface for the `interleave` binary."]
 
 mod app;
-mod cli;
+pub mod cli;
 pub mod error;
 pub mod input;
 pub mod io;
@@ -14,6 +14,7 @@ pub mod metrics;
 pub mod report;
 /// Strict Scenario schema and domain types.
 pub mod scenario;
-mod templates;
+pub mod templates;
 
+pub use app::run;
 pub use cli::command;
