@@ -7,8 +7,13 @@ mod decode_values;
 mod matrix;
 mod model;
 mod validate;
+mod validation_model;
 
 pub use decode::{MappingDecodeError, decode_mapping};
 pub use model::{
     GranuleBytes, LocalAddressMode, MappingModel, MappingName, TargetCount, XorRow, XorTap,
+};
+pub use validate::validate_mapping;
+pub use validation_model::{
+    MappingCheck, MappingCheckId, MappingCheckObservation, MappingClassification, MappingValidation,
 };

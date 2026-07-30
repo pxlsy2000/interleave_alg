@@ -154,7 +154,8 @@ impl ReportStatus {
 }
 
 /// Per-check status.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
     /// Check passed.
     Pass,
