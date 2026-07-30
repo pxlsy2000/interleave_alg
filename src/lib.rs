@@ -10,7 +10,8 @@ pub mod issue;
 pub mod mapping;
 mod metrics;
 mod report;
-mod scenario;
+/// Strict Scenario schema and domain types.
+pub mod scenario;
 mod templates;
 
 pub use cli::command;
