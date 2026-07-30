@@ -132,7 +132,8 @@ pub enum Severity {
 }
 
 /// Top-level report status.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
     /// No issues.
     Pass,

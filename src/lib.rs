@@ -10,7 +10,8 @@ pub mod issue;
 pub mod mapping;
 /// Exact per-test congestion analysis.
 pub mod metrics;
-mod report;
+/// Canonical command reports and deterministic renderers.
+pub mod report;
 /// Strict Scenario schema and domain types.
 pub mod scenario;
 mod templates;
