@@ -151,3 +151,82 @@ cases:
     );
     Ok(())
 }
+
+#[test]
+fn mixed_invalid_window_list_retains_unique_gate_before_entry_issue() -> ScenarioTestResult {
+    // Given
+    let source = r"schema_version: 1
+defaults: { accesses: 1, window_sizes: [1, 1, bad] }
+cases:
+  - { name: valid, kind: stride, base_bytes: 0, stride_bytes: 0 }
+";
+
+    // When
+    let error = scenario_errors(source)?;
+
+    // Then
+    let got = error
+        .issues()
+        .iter()
+        .map(|issue| (issue.path().as_str(), issue.message()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        [
+            (
+                "defaults.window_sizes",
+                "expected unique values, observed sequence"
+            ),
+            (
+                "defaults.window_sizes[2]",
+                "expected integer, observed \"bad\""
+            ),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn mixed_invalid_sweep_lists_retain_unique_gate_before_entry_issues() -> ScenarioTestResult {
+    // Given
+    let source = r"schema_version: 1
+defaults: { accesses: 1, window_sizes: [1] }
+cases:
+  - name: mixed
+    kind: sweep
+    base_bytes: [64, 0x40, bad]
+    stride_bytes: [64, 0x40, bad]
+";
+
+    // When
+    let error = scenario_errors(source)?;
+
+    // Then
+    let got = error
+        .issues()
+        .iter()
+        .map(|issue| (issue.path().as_str(), issue.message()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        [
+            (
+                "cases[0].base_bytes",
+                "expected unique values, observed sequence"
+            ),
+            (
+                "cases[0].base_bytes[2]",
+                "expected plain address, observed \"bad\""
+            ),
+            (
+                "cases[0].stride_bytes",
+                "expected unique values, observed sequence"
+            ),
+            (
+                "cases[0].stride_bytes[2]",
+                "expected plain address, observed \"bad\""
+            ),
+        ]
+    );
+    Ok(())
+}

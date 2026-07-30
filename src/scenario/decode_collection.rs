@@ -27,21 +27,21 @@ impl ScenarioDecoder {
         }
         let mut values = Vec::with_capacity(items.len());
         let mut complete = true;
+        let issue_start = self.issues.len();
         for (index, item) in items.iter().enumerate() {
             match self.address(item, path.clone().index(index)) {
                 Some(value) => values.push(value),
                 None => complete = false,
             }
         }
-        if !complete {
-            return None;
-        }
-        if has_duplicates(values.iter().map(|value| value.get())) {
+        let entry_issues = self.issues.split_off(issue_start);
+        let has_duplicate = has_duplicates(values.iter().map(|value| value.get()));
+        if has_duplicate {
             self.issues
                 .push(invalid_observed(path, "unique values", "sequence"));
-            return None;
         }
-        Some(values)
+        self.issues.extend(entry_issues);
+        (complete && !has_duplicate).then_some(values)
     }
 
     pub(super) fn schedule(&mut self, node: &SpannedYamlNode, path: IssuePath) -> Option<Schedule> {
