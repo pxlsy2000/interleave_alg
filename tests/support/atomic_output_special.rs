@@ -42,6 +42,99 @@ fn assert_invalid_target(path: &Path) {
     );
 }
 
+fn assert_output_io(path: &Path) {
+    let outcome = write_report(
+        &OutputRequest::new(OutputDestination::Path(path), true, &[]),
+        b"report\n",
+        &mut Vec::new(),
+    );
+    assert_eq!(
+        outcome
+            .as_ref()
+            .err()
+            .and_then(|error| error.issue())
+            .map(Issue::code),
+        Some(IssueCode::OutputIo)
+    );
+}
+
+#[test]
+fn filesystem_root_is_an_invalid_output_target() {
+    // Given
+    let output = Path::new("/");
+
+    // When / Then
+    assert_invalid_target(output);
+}
+
+#[test]
+fn current_directory_spelling_is_an_invalid_output_target() {
+    // Given
+    let output = Path::new(".");
+
+    // When / Then
+    assert_invalid_target(output);
+}
+
+#[test]
+fn parent_directory_spelling_is_an_invalid_output_target() {
+    // Given
+    let output = Path::new("..");
+
+    // When / Then
+    assert_invalid_target(output);
+}
+
+#[test]
+fn trailing_parent_component_is_invalid_without_temp_residue()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Given
+    let directory = tempdir()?;
+    let child = directory.path().join("child");
+    fs::create_dir(&child)?;
+    let sentinel = directory.path().join("sentinel");
+    fs::write(&sentinel, b"untouched")?;
+    let output = child.join("..");
+
+    // When
+    assert_invalid_target(&output);
+
+    // Then
+    assert_eq!(fs::read(&sentinel)?, b"untouched");
+    assert_eq!(
+        fs::read_dir(directory.path())?
+            .filter_map(Result::ok)
+            .filter(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".interleave.tmp."))
+            .count(),
+        0
+    );
+    Ok(())
+}
+
+#[test]
+fn empty_output_path_remains_output_io() {
+    // Given
+    let output = Path::new("");
+
+    // When / Then
+    assert_output_io(output);
+}
+
+#[test]
+fn missing_parent_with_trailing_parent_component_remains_output_io()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Given
+    let directory = tempdir()?;
+    let output = directory.path().join("missing").join("..");
+
+    // When / Then
+    assert_output_io(&output);
+    Ok(())
+}
+
 #[test]
 fn symlink_and_dangling_symlink_are_refused_without_following()
 -> Result<(), Box<dyn std::error::Error>> {

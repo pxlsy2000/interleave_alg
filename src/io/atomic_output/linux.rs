@@ -53,15 +53,12 @@ pub(super) fn write_path(
 }
 
 fn parent_and_name(path: &Path) -> Result<(&Path, &OsStr), OutputError> {
-    let name = path
-        .file_name()
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| {
-            OutputError::io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "output path has no final component",
-            ))
-        })?;
+    let Some(name) = path.file_name().filter(|name| !name.is_empty()) else {
+        return match std::fs::symlink_metadata(path) {
+            Ok(_) => Err(OutputError::invalid_target()),
+            Err(error) => Err(OutputError::io(error)),
+        };
+    };
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
