@@ -1,0 +1,2 @@
+FAIL  scenario preflight
+ERROR [scenario.invalid] cases[1].window_sizes: expected every window size <= Q=4, observed sequence

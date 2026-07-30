@@ -38,6 +38,8 @@ pub struct ValidateResult {
     pub(super) derived: DerivedMapping,
     pub(super) checks: [crate::mapping::MappingCheck; 3],
     pub(super) classification: MappingClassification,
+    #[serde(skip)]
+    pub(super) matrices: Box<MappingMatrixReport>,
 }
 
 impl ValidateResult {
@@ -48,8 +50,66 @@ impl ValidateResult {
             derived: DerivedMapping::new(mapping),
             checks: validation.checks().clone(),
             classification: validation.classification(),
+            matrices: Box::new(MappingMatrixReport::new(mapping)),
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct MappingMatrixReport {
+    pub(super) line_bits: usize,
+    pub(super) target_bits: usize,
+    pub(super) target: Vec<Vec<bool>>,
+    pub(super) local: Vec<Vec<bool>>,
+    pub(super) combined: Vec<Vec<bool>>,
+    pub(super) target_low: Vec<Vec<bool>>,
+}
+
+impl MappingMatrixReport {
+    fn new(mapping: &MappingModel) -> Self {
+        let line_bits = usize::from(mapping.line_bits());
+        let target_bits = usize::from(mapping.target_bits());
+        let target = bit_rows(mapping.target_rows(), line_bits);
+        let local = mapping.explicit_local_rows().map_or_else(
+            || {
+                (0..usize::from(mapping.local_address_bits()))
+                    .map(|row| {
+                        (0..line_bits)
+                            .map(|column| column == target_bits + row)
+                            .collect()
+                    })
+                    .collect()
+            },
+            |rows| bit_rows(rows, line_bits),
+        );
+        let combined = target.iter().chain(&local).cloned().collect();
+        let target_low = target
+            .iter()
+            .map(|row| row.iter().take(target_bits).copied().collect())
+            .collect();
+        Self {
+            line_bits,
+            target_bits,
+            target,
+            local,
+            combined,
+            target_low,
+        }
+    }
+}
+
+fn bit_rows(rows: &[crate::mapping::XorRow], columns: usize) -> Vec<Vec<bool>> {
+    rows.iter()
+        .map(|row| {
+            (0..columns)
+                .map(|column| {
+                    row.taps()
+                        .iter()
+                        .any(|tap| usize::from(tap.get()) == column)
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Canonical JSON representation of one mapped address.
@@ -82,6 +142,8 @@ pub struct MapResult {
     pub(super) mapping_name: String,
     pub(super) mapping_classification: MappingClassification,
     pub(super) addresses: Vec<MapAddressRow>,
+    #[serde(skip)]
+    pub(super) input: Option<String>,
 }
 
 impl MapResult {
@@ -89,11 +151,13 @@ impl MapResult {
         mapping: &MappingModel,
         validation: &MappingValidation,
         addresses: &[MappedAddress],
+        input: Option<&str>,
     ) -> Self {
         Self {
             mapping_name: mapping.name().as_str().to_owned(),
             mapping_classification: validation.classification(),
             addresses: addresses.iter().map(MapAddressRow::from).collect(),
+            input: input.map(str::to_owned),
         }
     }
 }

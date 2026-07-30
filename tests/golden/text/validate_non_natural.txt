@@ -1,0 +1,11 @@
+Mapping: example-4-target
+Input: mapping.yaml
+Derived: A=20, G=64, g=6, n=14, N=4, r=2, s=12
+
+PASS  input structure
+PASS  target reachable: rank(M)=2, expected 2
+PASS  bijective: rank(F)=14, expected 14
+WARN  natural LA: rank(Mp)=2, but L != [0 I]
+
+Result: valid_non_natural
+WARNING [mapping.non_natural] mapping.l.rows: rank(Mp)=2; L != [0 I]

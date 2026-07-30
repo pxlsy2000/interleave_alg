@@ -1,0 +1,57 @@
+Mapping: example-4-target
+Input: mapping.yaml
+Result: valid_natural
+
+Case: sequential
+Source case: sequential
+Accesses: 4096
+
+Targets
+Target  Count  Share
+0       1024   0.250000
+1       1024   0.250000
+2       1024   0.250000
+3       1024   0.250000
+
+Max load
+Target  Count  Ratio
+0       1024   1.000000
+
+Short-term windows
+Size  Target  Start index  Count  Ratio
+4     1       13           2      2.000000
+16    1       1            5      1.250000
+64    1       193          17     1.062500
+
+Longest run
+Length  Target  Start index
+2       2       31
+
+Warnings: none
+
+Case: tie-and-zero
+Source case: tie-and-zero
+Accesses: 4
+
+Targets
+Target  Count  Share
+0       2      0.500000
+1       2      0.500000
+2       0      0.000000
+3       0      0.000000
+
+Max load
+Target  Count  Ratio
+0       2      2.000000
+
+Short-term windows
+Size  Target  Start index  Count  Ratio
+1     0       0            1      4.000000
+2     0       0            1      2.000000
+4     0       0            2      2.000000
+
+Longest run
+Length  Target  Start index
+1       0       0
+
+Warnings: none

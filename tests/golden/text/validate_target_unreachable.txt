@@ -1,0 +1,11 @@
+Mapping: unreachable-4-target
+Input: mapping.yaml
+Derived: A=20, G=64, g=6, n=14, N=4, r=2, s=12
+
+PASS  input structure
+FAIL  target reachable: rank(M)=1, expected 2
+FAIL  bijective: rank(F)=13, expected 14
+FAIL  natural LA: rank(Mp)=1, expected 2
+
+Result: invalid_target_unreachable
+ERROR [mapping.target_unreachable] mapping.m.rows: rank(M)=1, expected 2

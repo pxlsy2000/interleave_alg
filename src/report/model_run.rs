@@ -24,6 +24,10 @@ impl SafeInteger {
             .map(Self)
             .map_err(|_| ReportModelError::UnsafeInteger)
     }
+
+    pub(super) const fn get(self) -> u64 {
+        self.0
+    }
 }
 
 /// Exact unreduced ratio and its deterministic six-place display value.
@@ -154,6 +158,8 @@ pub struct RunResult {
     pub(super) mapping_name: String,
     pub(super) mapping_classification: crate::mapping::MappingClassification,
     pub(super) cases: Vec<RunCaseResult>,
+    #[serde(skip)]
+    pub(super) input: Option<String>,
 }
 
 impl RunResult {
@@ -161,11 +167,13 @@ impl RunResult {
         mapping: &MappingModel,
         validation: &MappingValidation,
         cases: Vec<RunCaseResult>,
+        input: Option<&str>,
     ) -> Self {
         Self {
             mapping_name: mapping.name().as_str().to_owned(),
             mapping_classification: validation.classification(),
             cases,
+            input: input.map(str::to_owned),
         }
     }
 }

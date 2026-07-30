@@ -1,0 +1,18 @@
+Mapping: zero-dimension
+Input: zero.yaml
+Derived: A=1, G=2, g=1, n=0, N=1, r=0, s=0
+
+M (0 x 0; columns none)
+
+L (0 x 0; columns none)
+
+F (0 x 0; rows none; columns none)
+
+Mp (0 x 0; columns none)
+
+PASS  input structure
+PASS  target reachable: rank(M)=0, expected 0
+PASS  bijective: rank(F)=0, expected 0
+PASS  natural LA: rank(Mp)=0 and L=[0 I]
+
+Result: valid_natural

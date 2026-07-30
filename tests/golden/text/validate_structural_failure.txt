@@ -1,0 +1,3 @@
+FAIL  input structure
+ERROR [input.invalid_value] address.width_bits: expected integer in [1,64], observed 0
+ERROR [input.unknown_field] ["later"]: unknown field "later"

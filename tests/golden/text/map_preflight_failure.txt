@@ -1,0 +1,2 @@
+FAIL  address preflight
+ERROR [address.out_of_range] addresses[1]: address 0x100000 is outside the 20-bit range

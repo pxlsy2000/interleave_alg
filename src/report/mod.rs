@@ -11,3 +11,4 @@ pub use model_run::{
     ExactRatio, LongestRunResult, MaximumLoadResult, RunCaseResult, RunResult, TargetResult,
     WindowResult,
 };
+pub use text::{TextRenderError, TextReportStyle, render_text};

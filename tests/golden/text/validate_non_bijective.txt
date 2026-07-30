@@ -1,0 +1,11 @@
+Mapping: broken-4-target
+Input: mapping.yaml
+Derived: A=20, G=64, g=6, n=14, N=4, r=2, s=12
+
+PASS  input structure
+PASS  target reachable: rank(M)=2, expected 2
+FAIL  bijective: rank(F)=13, expected 14
+FAIL  natural LA: rank(Mp)=2, but L != [0 I]
+
+Result: invalid_non_bijective
+ERROR [mapping.non_bijective] mapping.l.rows: rank(F)=13, expected 14

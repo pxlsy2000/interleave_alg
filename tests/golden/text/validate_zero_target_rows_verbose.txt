@@ -1,0 +1,26 @@
+Mapping: zero-target-rows
+Input: zero-rows.yaml
+Derived: A=4, G=1, g=0, n=4, N=1, r=0, s=4
+
+M (0 x 4; columns x0..x3)
+
+L (4 x 4; columns x0..x3)
+  l0   1 0 0 0
+  l1   0 1 0 0
+  l2   0 0 1 0
+  l3   0 0 0 1
+
+F (4 x 4; rows l0..l3; columns x0..x3)
+  1 0 0 0
+  0 1 0 0
+  0 0 1 0
+  0 0 0 1
+
+Mp (0 x 0; columns none)
+
+PASS  input structure
+PASS  target reachable: rank(M)=0, expected 0
+PASS  bijective: rank(F)=4, expected 4
+PASS  natural LA: rank(Mp)=0 and L=[0 I]
+
+Result: valid_natural

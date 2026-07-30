@@ -105,11 +105,21 @@ impl Report {
         validation: &MappingValidation,
         addresses: &[MappedAddress],
     ) -> Result<Self, ReportModelError> {
+        Self::map_with_input(mapping, None, validation, addresses)
+    }
+
+    /// Constructs a completed address Mapping report with text presentation context.
+    pub fn map_with_input(
+        mapping: &MappingModel,
+        input: Option<&str>,
+        validation: &MappingValidation,
+        addresses: &[MappedAddress],
+    ) -> Result<Self, ReportModelError> {
         valid_query_classification(validation.classification())?;
         report_with_result(
             ReportCommand::Map,
             validation.issues(),
-            ReportResult::Map(MapResult::new(mapping, validation, addresses)),
+            ReportResult::Map(MapResult::new(mapping, validation, addresses, input)),
         )
     }
 
@@ -123,11 +133,21 @@ impl Report {
         validation: &MappingValidation,
         cases: Vec<RunCaseResult>,
     ) -> Result<Self, ReportModelError> {
+        Self::run_with_input(mapping, None, validation, cases)
+    }
+
+    /// Constructs a completed Scenario report with text presentation context.
+    pub fn run_with_input(
+        mapping: &MappingModel,
+        input: Option<&str>,
+        validation: &MappingValidation,
+        cases: Vec<RunCaseResult>,
+    ) -> Result<Self, ReportModelError> {
         valid_query_classification(validation.classification())?;
         report_with_result(
             ReportCommand::Run,
             validation.issues(),
-            ReportResult::Run(RunResult::new(mapping, validation, cases)),
+            ReportResult::Run(RunResult::new(mapping, validation, cases, input)),
         )
     }
 
