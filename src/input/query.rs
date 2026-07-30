@@ -1,7 +1,7 @@
 use crate::{
     input::{
         limits::MAX_QUERY_ADDRESSES,
-        scalar::{Address, AddressError, AddressWidth},
+        scalar::{Address, AddressMagnitude, AddressMagnitudeError, AddressWidth},
     },
     issue::{Issue, IssueCode, IssueOrderKey, IssuePath, IssuePhase, canonical_json_string},
 };
@@ -10,8 +10,8 @@ use crate::{
 ///
 /// # Errors
 /// Returns all source-ordered address issues, or one resource/allocation issue.
-pub fn preflight_query_addresses(
-    lexemes: &[String],
+pub fn preflight_query_addresses<T: AsRef<str>>(
+    lexemes: &[T],
     width: AddressWidth,
 ) -> Result<Vec<Address>, Vec<Issue>> {
     if lexemes.len() > MAX_QUERY_ADDRESSES {
@@ -34,46 +34,38 @@ pub fn preflight_query_addresses(
         )]);
     }
     let mut issues = Vec::new();
-    for (index, lexeme) in lexemes.iter().enumerate() {
+    for (index, operand) in lexemes.iter().enumerate() {
+        let lexeme = operand.as_ref();
         let order = IssueOrderKey::new(IssuePhase::Address, index, 0);
-        match Address::parse(lexeme) {
-            Ok(address) => match address.checked_for_width(width) {
-                Ok(_) => addresses.push(address),
-                Err(AddressError::OutOfRange { .. }) => issues.push(
+        match AddressMagnitude::parse(lexeme) {
+            Ok(magnitude) => match magnitude.in_width(width) {
+                Some(address) => addresses.push(address),
+                None => issues.push(
                     Issue::new(
                         IssueCode::AddressOutOfRange,
                         IssuePath::root().field("addresses").index(index),
                         format!(
                             "address {} is outside the {}-bit range",
-                            address.canonical(),
+                            magnitude.canonical(),
                             width.get()
                         ),
                     )
                     .with_order(order),
                 ),
-                Err(
-                    AddressError::InvalidLexeme
-                    | AddressError::Overflow
-                    | AddressError::InvalidWidth { .. },
-                ) => issues.push(
-                    Issue::new(
-                        IssueCode::AnalysisFailed,
-                        IssuePath::root(),
-                        "analysis could not be completed",
-                    )
-                    .with_order(order),
-                ),
             },
-            Err(
-                AddressError::InvalidLexeme
-                | AddressError::Overflow
-                | AddressError::InvalidWidth { .. }
-                | AddressError::OutOfRange { .. },
-            ) => issues.push(
+            Err(AddressMagnitudeError::InvalidLexeme) => issues.push(
                 Issue::new(
                     IssueCode::AddressInvalid,
                     IssuePath::root().field("addresses").index(index),
                     format!("invalid address {}", canonical_json_string(lexeme)),
+                )
+                .with_order(order),
+            ),
+            Err(AddressMagnitudeError::AnalysisFailed) => issues.push(
+                Issue::new(
+                    IssueCode::AnalysisFailed,
+                    IssuePath::root(),
+                    "analysis could not be completed",
                 )
                 .with_order(order),
             ),

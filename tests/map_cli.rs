@@ -2,7 +2,6 @@
 
 use std::{fs, process::Command};
 
-use clap::Parser as _;
 use interleave::{
     cli::{Cli, CliCommand},
     input::{limits::MAX_QUERY_ADDRESSES, preflight_query_addresses, scalar::AddressWidth},
@@ -45,7 +44,7 @@ mapping:
       - [0]
 ";
 
-type TestResult = Result<(), Box<dyn std::error::Error>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 fn interleave(arguments: &[&str]) -> std::io::Result<std::process::Output> {
     Command::new(assert_cmd::cargo::cargo_bin!("interleave"))
@@ -67,5 +66,6 @@ fn json_at<'value>(value: &'value Value, pointer: &str) -> std::io::Result<&'val
 
 include!("support/map_cli_core.rs");
 include!("support/map_cli_boundaries.rs");
+include!("support/map_cli_magnitudes.rs");
 include!("support/map_cli_failures.rs");
 include!("support/map_cli_routing.rs");

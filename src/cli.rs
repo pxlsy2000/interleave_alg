@@ -1,6 +1,6 @@
 //! Typed command-line grammar.
 
-use std::path::PathBuf;
+use std::{convert::Infallible, ffi::OsString, path::PathBuf, str::FromStr};
 
 use clap::{ArgAction, Args, Command, CommandFactory as _, Parser, Subcommand, ValueEnum};
 
@@ -101,7 +101,7 @@ pub struct MapArgs {
     pub spec: PathBuf,
     /// Byte addresses in exact command-line order.
     #[arg(required = true, num_args = 1.., allow_negative_numbers = true)]
-    pub addresses: Vec<String>,
+    pub addresses: Vec<AddressOperand>,
     /// Report encoding.
     #[arg(
         long,
@@ -118,11 +118,81 @@ pub struct MapArgs {
     pub force: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// One address operand preserved exactly for domain parsing.
+pub struct AddressOperand(String);
+
+impl AddressOperand {
+    /// Returns the original command-line lexeme.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for AddressOperand {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl FromStr for AddressOperand {
+    type Err = Infallible;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let original = value.strip_prefix('\0').map_or(value, |original| original);
+        Ok(Self(original.to_owned()))
+    }
+}
+
 impl Cli {
     /// Parses the native process arguments without exiting the process.
     pub fn try_parse() -> Result<Self, clap::Error> {
-        <Self as Parser>::try_parse()
+        Self::try_parse_from(std::env::args_os())
     }
+
+    /// Parses an explicit argument iterator through the process-equivalent wrapper.
+    pub fn try_parse_from<I, T>(arguments: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString>,
+    {
+        <Self as Parser>::try_parse_from(normalize_map_arguments(arguments))
+    }
+}
+
+fn normalize_map_arguments<I, T>(arguments: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    let mut normalized: Vec<OsString> = arguments.into_iter().map(Into::into).collect();
+    let Some(map_index) = normalized.iter().position(|argument| argument == "map") else {
+        return normalized;
+    };
+    let mut option_value = false;
+    for argument in normalized.iter_mut().skip(map_index + 1) {
+        if option_value {
+            option_value = false;
+            continue;
+        }
+        let Some(value) = argument.to_str() else {
+            continue;
+        };
+        if value == "--" {
+            break;
+        }
+        if matches!(value, "--spec" | "--format" | "--output") {
+            option_value = true;
+            continue;
+        }
+        if value.starts_with("-0x") || value.starts_with("-0X") {
+            let mut escaped = String::with_capacity(value.len() + 1);
+            escaped.push('\0');
+            escaped.push_str(value);
+            *argument = OsString::from(escaped);
+        }
+    }
+    normalized
 }
 
 /// Builds the parser from the typed grammar and authoritative package metadata.
@@ -135,7 +205,7 @@ pub fn command() -> Command {
 mod tests {
     use clap::error::ErrorKind;
 
-    use super::command;
+    use super::{Cli, CliCommand, command};
 
     #[test]
     fn version_is_reported_from_package_metadata() {
@@ -169,5 +239,31 @@ mod tests {
             result.as_ref(),
             Err(error) if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
         ));
+    }
+
+    #[test]
+    fn map_option_values_that_look_signed_are_not_normalized_as_operands() {
+        // Given
+        let arguments = ["interleave", "map", "--spec=-0x1", "0", "--output=-0x2"];
+
+        // When
+        let parsed = Cli::try_parse_from(arguments);
+
+        // Then
+        let Ok(Cli {
+            command: CliCommand::Map(map),
+        }) = parsed
+        else {
+            panic!("map arguments must parse");
+        };
+        assert_eq!(map.spec.to_string_lossy(), "-0x1");
+        assert_eq!(
+            map.output.as_deref().map(|path| path.to_string_lossy()),
+            Some("-0x2".into())
+        );
+        assert_eq!(
+            map.addresses.first().map(super::AddressOperand::as_str),
+            Some("0")
+        );
     }
 }

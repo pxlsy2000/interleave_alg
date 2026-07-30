@@ -37,16 +37,69 @@ fn query_operand_cap_is_checked_in_process_at_exact_and_plus_one() -> TestResult
 }
 
 #[test]
-fn negative_hex_reaches_address_validation_after_the_standard_terminator() -> TestResult {
+fn direct_negative_hex_reaches_address_validation_with_options_on_either_side() -> TestResult {
+    // Given
+    let cases = [
+        vec![
+            "map",
+            "--spec",
+            NATURAL_MAPPING_PATH,
+            "-0x1",
+            "--format",
+            "json",
+        ],
+        vec![
+            "map",
+            "--format",
+            "json",
+            "--spec",
+            NATURAL_MAPPING_PATH,
+            "-0x1",
+        ],
+        vec![
+            "map",
+            "--spec",
+            NATURAL_MAPPING_PATH,
+            "--format",
+            "json",
+            "--",
+            "-0x1",
+        ],
+    ];
+
+    // When
+    let outputs = cases
+        .iter()
+        .map(|arguments| interleave(arguments))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Then
+    for output in outputs {
+        assert_eq!(output.status.code(), Some(3));
+        assert!(output.stderr.is_empty());
+        let envelope: Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(json_at(&envelope, "/errors/0/code")?, "address.invalid");
+        assert_eq!(json_at(&envelope, "/errors/0/path")?, "addresses[0]");
+        assert_eq!(
+            json_at(&envelope, "/errors/0/message")?,
+            "invalid address \"-0x1\""
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn repeated_direct_negative_hex_operands_keep_paths_and_real_options_stay_options() -> TestResult {
     // Given
     let arguments = [
         "map",
         "--spec",
         NATURAL_MAPPING_PATH,
+        "-0x1",
+        "0",
+        "-0x2",
         "--format",
         "json",
-        "--",
-        "-0x1",
     ];
 
     // When
@@ -56,8 +109,48 @@ fn negative_hex_reaches_address_validation_after_the_standard_terminator() -> Te
     assert_eq!(output.status.code(), Some(3));
     assert!(output.stderr.is_empty());
     let envelope: Value = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(json_at(&envelope, "/errors/0/code")?, "address.invalid");
     assert_eq!(json_at(&envelope, "/errors/0/path")?, "addresses[0]");
+    assert_eq!(json_at(&envelope, "/errors/1/path")?, "addresses[2]");
+    assert_eq!(
+        json_at(&envelope, "/errors/1/message")?,
+        "invalid address \"-0x2\""
+    );
+    Ok(())
+}
+
+#[test]
+fn a_real_unknown_option_remains_a_usage_error() -> TestResult {
+    // Given
+    let arguments = [
+        "map",
+        "--spec",
+        NATURAL_MAPPING_PATH,
+        "0",
+        "--not-an-interleave-option",
+    ];
+
+    // When
+    let output = interleave(&arguments)?;
+
+    // Then
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8(output.stderr)?.contains("unexpected argument"));
+    Ok(())
+}
+
+#[test]
+fn map_help_and_version_remain_successful_parser_shortcuts() -> TestResult {
+    // Given / When
+    let help = interleave(&["map", "--help"])?;
+    let version = interleave(&["map", "--version"])?;
+
+    // Then
+    assert_eq!(help.status.code(), Some(0));
+    assert_eq!(version.status.code(), Some(0));
+    assert!(help.stderr.is_empty());
+    assert!(version.stderr.is_empty());
+    assert_eq!(version.stdout, b"interleave 0.1.0\n");
     Ok(())
 }
 

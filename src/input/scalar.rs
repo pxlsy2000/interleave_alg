@@ -8,9 +8,21 @@ use super::limits::MAX_ADDRESS_WIDTH_BITS;
 use lexeme::{AccumulateError, accumulate, address_digits, generic_digits};
 
 mod lexeme;
+mod magnitude;
 
 const DECIMAL_SCALE: u128 = 1_000_000;
 const U64_EXCLUSIVE_BOUND: u128 = 18_446_744_073_709_551_616;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AddressMagnitudeError {
+    InvalidLexeme,
+    AnalysisFailed,
+}
+
+pub(crate) struct AddressMagnitude {
+    canonical: String,
+    value: Option<Address>,
+}
 
 /// A generic integer accepted from a plain YAML scalar.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
