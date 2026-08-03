@@ -4,6 +4,7 @@ include!("support/yaml.rs");
 include!("support/yaml_adversarial.rs");
 include!("support/yaml_core.rs");
 include!("support/yaml_scalar_limit.rs");
+include!("support/yaml_position_index.rs");
 
 use std::io::Cursor;
 

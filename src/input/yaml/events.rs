@@ -143,9 +143,6 @@ impl<'source> PropertyRegion<'source> {
             .get(self.start..self.end)
             .and_then(|region| region.iter().position(|byte| *byte == indicator))
             .map_or(self.end, |offset| self.start.saturating_add(offset));
-        Violation::syntax(
-            self.positions.position_at_byte(self.text, relative),
-            priority,
-        )
+        Violation::syntax(self.positions.position_at_byte(relative), priority)
     }
 }
