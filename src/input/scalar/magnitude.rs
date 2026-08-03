@@ -8,7 +8,8 @@ const DECIMAL_CHUNK_DIGITS: usize = 9;
 const DECIMAL_CHUNK_RADIX: u32 = 1_000_000_000;
 
 impl AddressMagnitude {
-    pub(crate) fn parse(lexeme: &str) -> Result<Self, AddressMagnitudeError> {
+    /// Parses the exact address grammar without imposing an integer-width cap.
+    pub fn parse(lexeme: &str) -> Result<Self, AddressMagnitudeError> {
         let (digits, radix) =
             address_digits(lexeme).map_err(|_| AddressMagnitudeError::InvalidLexeme)?;
         match radix {
@@ -23,8 +24,22 @@ impl AddressMagnitude {
             .filter(|address| address.get() < width.exclusive_bound())
     }
 
-    pub(crate) fn canonical(&self) -> &str {
+    /// Returns canonical lowercase hexadecimal with a `0x` prefix.
+    pub fn canonical(&self) -> &str {
         &self.canonical
+    }
+
+    pub(crate) fn checked_last(
+        &self,
+        stride: &Self,
+        accesses: u64,
+    ) -> Result<Self, AddressMagnitudeError> {
+        let multiplier = u32::try_from(accesses.saturating_sub(1))
+            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
+        let mut limbs = stride.limbs.clone();
+        multiply_add(&mut limbs, multiplier, 0)?;
+        add_limbs(&mut limbs, &self.limbs)?;
+        Self::from_limbs(limbs)
     }
 
     fn from_decimal(digits: &[u8]) -> Result<Self, AddressMagnitudeError> {
@@ -52,51 +67,23 @@ impl AddressMagnitude {
                 chunk = 0;
             }
         }
-        Self::from_limbs(&limbs)
+        Self::from_limbs(limbs)
     }
 
     fn from_hex(digits: &[u8]) -> Result<Self, AddressMagnitudeError> {
-        let mut normalized = Vec::new();
-        normalized
-            .try_reserve_exact(digits.len())
-            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
-        normalized.extend(
-            digits
-                .iter()
-                .copied()
-                .filter(|byte| *byte != b'_')
-                .map(|byte| byte.to_ascii_lowercase()),
-        );
-        let first = normalized
-            .iter()
-            .position(|byte| *byte != b'0')
-            .unwrap_or_else(|| normalized.len().saturating_sub(1));
-        let significant = normalized
-            .get(first..)
-            .ok_or(AddressMagnitudeError::AnalysisFailed)?;
-        let mut canonical = String::from("0x");
-        canonical
-            .try_reserve(significant.len())
-            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
-        for byte in significant {
-            canonical.push(char::from(*byte));
+        let mut limbs = vec![0_u32];
+        for byte in digits.iter().copied().filter(|byte| *byte != b'_') {
+            let digit = hex_digit(byte.to_ascii_lowercase())
+                .ok_or(AddressMagnitudeError::AnalysisFailed)?;
+            multiply_add(&mut limbs, 16, u32::from(digit))?;
         }
-        let value = if significant.len() <= 16 {
-            let mut raw = 0_u64;
-            for byte in significant {
-                raw = raw
-                    .checked_mul(16)
-                    .and_then(|partial| hex_digit(*byte).map(|digit| partial + u64::from(digit)))
-                    .ok_or(AddressMagnitudeError::AnalysisFailed)?;
-            }
-            Some(Address::from_u128(u128::from(raw)))
-        } else {
-            None
-        };
-        Ok(Self { canonical, value })
+        Self::from_limbs(limbs)
     }
 
-    fn from_limbs(limbs: &[u32]) -> Result<Self, AddressMagnitudeError> {
+    fn from_limbs(mut limbs: Vec<u32>) -> Result<Self, AddressMagnitudeError> {
+        while limbs.len() > 1 && limbs.last() == Some(&0) {
+            limbs.pop();
+        }
         let Some(high) = limbs.last() else {
             return Err(AddressMagnitudeError::AnalysisFailed);
         };
@@ -104,7 +91,7 @@ impl AddressMagnitude {
         for limb in limbs.iter().rev().skip(1) {
             write!(canonical, "{limb:08x}").map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
         }
-        let value = match limbs {
+        let value = match limbs.as_slice() {
             [low] => Some(Address::from_u128(u128::from(*low))),
             [low, high] => {
                 let raw = u64::from(*low) | (u64::from(*high) << 32);
@@ -112,8 +99,39 @@ impl AddressMagnitude {
             }
             [] | [_, _, ..] => None,
         };
-        Ok(Self { canonical, value })
+        Ok(Self {
+            limbs,
+            canonical,
+            value,
+        })
     }
+}
+
+fn add_limbs(target: &mut Vec<u32>, addend: &[u32]) -> Result<(), AddressMagnitudeError> {
+    if target.len() < addend.len() {
+        target
+            .try_reserve(addend.len() - target.len())
+            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
+        target.resize(addend.len(), 0);
+    }
+    let mut carry = 0_u64;
+    for (index, limb) in target.iter_mut().enumerate() {
+        let addend_limb = addend.get(index).copied().unwrap_or(0);
+        let total = u64::from(*limb)
+            .checked_add(u64::from(addend_limb))
+            .and_then(|value| value.checked_add(carry))
+            .ok_or(AddressMagnitudeError::AnalysisFailed)?;
+        *limb = u32::try_from(total & u64::from(u32::MAX))
+            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
+        carry = total >> 32;
+    }
+    if carry != 0 {
+        target
+            .try_reserve(1)
+            .map_err(|_| AddressMagnitudeError::AnalysisFailed)?;
+        target.push(u32::try_from(carry).map_err(|_| AddressMagnitudeError::AnalysisFailed)?);
+    }
+    Ok(())
 }
 
 fn multiply_add(

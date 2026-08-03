@@ -213,7 +213,7 @@ fn effective_window_count_at_limit_passes_and_plus_one_fails() -> ScenarioExpand
 }
 
 #[test]
-fn checked_last_address_overflow_uses_range_sentinel() -> ScenarioExpandResult {
+fn checked_last_address_above_u128_reports_exact_magnitude() -> ScenarioExpandResult {
     // Given
     let mapping = decode_expand_mapping(64, 1)?;
     let scenario = decode_expand_scenario(
@@ -231,7 +231,7 @@ fn checked_last_address_overflow_uses_range_sentinel() -> ScenarioExpandResult {
     // Then
     assert_eq!(
         rendered_issues(error.issues()),
-        ["address.out_of_range|cases[0].streams[0]|address 0x10000000000000000 is outside the 64-bit range"]
+        ["address.out_of_range|cases[0].streams[0]|address 0x1fffffffffffffffffffffffffffffffe is outside the 64-bit range"]
     );
     Ok(())
 }

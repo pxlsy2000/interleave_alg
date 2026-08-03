@@ -13,13 +13,21 @@ mod magnitude;
 const DECIMAL_SCALE: u128 = 1_000_000;
 const U64_EXCLUSIVE_BOUND: u128 = 18_446_744_073_709_551_616;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum AddressMagnitudeError {
+/// A grammar or bounded-analysis failure for a magnitude-unbounded address.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum AddressMagnitudeError {
+    /// The text does not match the exact address grammar.
+    #[error("invalid address lexeme")]
     InvalidLexeme,
+    /// Canonicalization or bounded arithmetic could not be completed.
+    #[error("address magnitude analysis failed")]
     AnalysisFailed,
 }
 
-pub(crate) struct AddressMagnitude {
+/// A grammar-valid address magnitude independent of the execution width.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AddressMagnitude {
+    limbs: Vec<u32>,
     canonical: String,
     value: Option<Address>,
 }

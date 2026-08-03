@@ -1,5 +1,5 @@
 use crate::{
-    input::{SpannedYamlNode, scalar::Address},
+    input::{SpannedYamlNode, scalar::AddressMagnitude},
     issue::{IssuePath, canonical_json_string},
 };
 
@@ -15,7 +15,7 @@ impl ScenarioDecoder {
         &mut self,
         node: &SpannedYamlNode,
         path: IssuePath,
-    ) -> Option<Vec<Address>> {
+    ) -> Option<Vec<AddressMagnitude>> {
         let Some(items) = sequence(node) else {
             self.issues.push(invalid(path, "sequence", node));
             return None;
@@ -35,7 +35,7 @@ impl ScenarioDecoder {
             }
         }
         let entry_issues = self.issues.split_off(issue_start);
-        let has_duplicate = has_duplicates(values.iter().map(|value| value.get()));
+        let has_duplicate = has_duplicates(values.iter().map(AddressMagnitude::canonical));
         if has_duplicate {
             self.issues
                 .push(invalid_observed(path, "unique values", "sequence"));

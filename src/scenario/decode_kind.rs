@@ -1,5 +1,5 @@
 use crate::{
-    input::{ScalarKind, SpannedMappingEntry, SpannedYamlNode, scalar::Address},
+    input::{ScalarKind, SpannedMappingEntry, SpannedYamlNode, scalar::AddressMagnitude},
     issue::{IssuePath, canonical_json_string},
 };
 
@@ -56,13 +56,13 @@ impl CaseKindTag {
 
 pub(super) enum CasePayloadDraft {
     Stride {
-        base: Option<Address>,
-        stride: Option<Address>,
+        base: Option<AddressMagnitude>,
+        stride: Option<AddressMagnitude>,
         accesses: Option<AccessCount>,
     },
     Sweep {
-        bases: Option<Vec<Address>>,
-        strides: Option<Vec<Address>>,
+        bases: Option<Vec<AddressMagnitude>>,
+        strides: Option<Vec<AddressMagnitude>>,
         accesses: Option<AccessCount>,
     },
     MultiStream {

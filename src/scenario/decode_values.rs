@@ -1,8 +1,12 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    input::{ScalarKind, SpannedYamlNode, limits::MAX_IDENTIFIER_UTF8_BYTES, scalar::Address},
-    issue::{IssuePath, canonical_json_string},
+    input::{
+        ScalarKind, SpannedYamlNode,
+        limits::MAX_IDENTIFIER_UTF8_BYTES,
+        scalar::{AddressMagnitude, AddressMagnitudeError},
+    },
+    issue::{Issue, IssueCode, IssuePath, canonical_json_string},
 };
 
 use super::{
@@ -155,12 +159,25 @@ impl ScenarioDecoder {
         Some(value.value().eq_ignore_ascii_case("true"))
     }
 
-    pub(super) fn address(&mut self, node: &SpannedYamlNode, path: IssuePath) -> Option<Address> {
-        if let Ok(value) = parse_address(node) {
-            Some(value)
-        } else {
-            self.issues.push(invalid(path, "plain address", node));
-            None
+    pub(super) fn address(
+        &mut self,
+        node: &SpannedYamlNode,
+        path: IssuePath,
+    ) -> Option<AddressMagnitude> {
+        match parse_address(node) {
+            Ok(value) => Some(value),
+            Err(AddressMagnitudeError::InvalidLexeme) => {
+                self.issues.push(invalid(path, "plain address", node));
+                None
+            }
+            Err(AddressMagnitudeError::AnalysisFailed) => {
+                self.issues.push(Issue::new(
+                    IssueCode::AnalysisFailed,
+                    IssuePath::root(),
+                    "analysis could not be completed",
+                ));
+                None
+            }
         }
     }
 }

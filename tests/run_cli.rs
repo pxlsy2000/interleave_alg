@@ -118,6 +118,7 @@ fn assert_untouched(path: &Path, expected: &[u8]) -> TestResult {
 
 include!("support/run_cli_core.rs");
 include!("support/run_cli_failures.rs");
+include!("support/run_cli_large_addresses.rs");
 include!("support/run_cli_input_routing.rs");
 include!("support/run_cli_limits.rs");
 include!("support/run_cli_warning_failures.rs");

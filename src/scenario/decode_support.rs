@@ -2,7 +2,7 @@ use crate::{
     input::{
         ScalarKind, ScalarStyle, SpannedMappingEntry, SpannedYamlKind, SpannedYamlNode,
         SpannedYamlScalar,
-        scalar::{Address, GenericInteger, GenericIntegerError},
+        scalar::{AddressMagnitude, AddressMagnitudeError, GenericInteger, GenericIntegerError},
         yaml::canonical_value,
     },
     issue::{Issue, IssueCode, IssueOrderKey, IssuePath, IssuePhase, canonical_json_string},
@@ -75,11 +75,13 @@ pub(super) fn parse_integer(node: &SpannedYamlNode) -> Result<(u128, String), &'
     }
 }
 
-pub(super) fn parse_address(node: &SpannedYamlNode) -> Result<Address, ()> {
+pub(super) fn parse_address(
+    node: &SpannedYamlNode,
+) -> Result<AddressMagnitude, AddressMagnitudeError> {
     let Some(value) = scalar(node).filter(|value| value.style() == ScalarStyle::Plain) else {
-        return Err(());
+        return Err(AddressMagnitudeError::InvalidLexeme);
     };
-    Address::parse(value.value()).map_err(|_| ())
+    AddressMagnitude::parse(value.value())
 }
 
 pub(super) fn parse_string(node: &SpannedYamlNode) -> Option<&SpannedYamlScalar> {

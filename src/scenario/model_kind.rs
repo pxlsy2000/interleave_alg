@@ -1,24 +1,24 @@
-use crate::input::scalar::Address;
+use crate::input::scalar::AddressMagnitude;
 
 use super::model::{AccessCount, Schedule, StreamName};
 
 /// One structurally valid stride case payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrideScenario {
-    pub(super) base_bytes: Address,
-    pub(super) stride_bytes: Address,
+    pub(super) base_bytes: AddressMagnitude,
+    pub(super) stride_bytes: AddressMagnitude,
     pub(super) accesses: Option<AccessCount>,
 }
 
 impl StrideScenario {
     /// Returns the first byte address.
-    pub const fn base_bytes(&self) -> Address {
-        self.base_bytes
+    pub const fn base_bytes(&self) -> &AddressMagnitude {
+        &self.base_bytes
     }
 
     /// Returns the byte stride.
-    pub const fn stride_bytes(&self) -> Address {
-        self.stride_bytes
+    pub const fn stride_bytes(&self) -> &AddressMagnitude {
+        &self.stride_bytes
     }
 
     /// Returns the case override, if declared.
@@ -30,19 +30,19 @@ impl StrideScenario {
 /// One source-ordered sweep payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SweepScenario {
-    pub(super) base_bytes: Vec<Address>,
-    pub(super) stride_bytes: Vec<Address>,
+    pub(super) base_bytes: Vec<AddressMagnitude>,
+    pub(super) stride_bytes: Vec<AddressMagnitude>,
     pub(super) accesses: Option<AccessCount>,
 }
 
 impl SweepScenario {
     /// Returns bases in declaration order.
-    pub fn base_bytes(&self) -> &[Address] {
+    pub fn base_bytes(&self) -> &[AddressMagnitude] {
         &self.base_bytes
     }
 
     /// Returns strides in declaration order.
-    pub fn stride_bytes(&self) -> &[Address] {
+    pub fn stride_bytes(&self) -> &[AddressMagnitude] {
         &self.stride_bytes
     }
 
@@ -56,8 +56,8 @@ impl SweepScenario {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamScenario {
     pub(super) name: StreamName,
-    pub(super) base_bytes: Address,
-    pub(super) stride_bytes: Address,
+    pub(super) base_bytes: AddressMagnitude,
+    pub(super) stride_bytes: AddressMagnitude,
     pub(super) accesses: AccessCount,
 }
 
@@ -68,13 +68,13 @@ impl StreamScenario {
     }
 
     /// Returns the first byte address.
-    pub const fn base_bytes(&self) -> Address {
-        self.base_bytes
+    pub const fn base_bytes(&self) -> &AddressMagnitude {
+        &self.base_bytes
     }
 
     /// Returns the byte stride.
-    pub const fn stride_bytes(&self) -> Address {
-        self.stride_bytes
+    pub const fn stride_bytes(&self) -> &AddressMagnitude {
+        &self.stride_bytes
     }
 
     /// Returns the stream access count.

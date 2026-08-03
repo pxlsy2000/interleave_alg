@@ -57,12 +57,13 @@ pub(super) fn execute(arguments: &RunArgs) -> Result<u8, ExecutionError> {
     let scenario = match decode_scenario(&scenario_document) {
         Ok(scenario) => scenario,
         Err(error) => {
+            let exit = error.exit_class().code();
             return render_after_mapping_failure(
                 &validation,
                 error.issues().to_vec(),
                 route,
                 &identities,
-                3,
+                exit,
             );
         }
     };
@@ -86,12 +87,13 @@ pub(super) fn execute(arguments: &RunArgs) -> Result<u8, ExecutionError> {
     let plan = match preflight_scenarios(&mapping, &selected) {
         Ok(plan) => plan,
         Err(error) => {
+            let exit = error.exit_class().code();
             return render_after_mapping_failure(
                 &validation,
                 error.issues().to_vec(),
                 route,
                 &identities,
-                3,
+                exit,
             );
         }
     };

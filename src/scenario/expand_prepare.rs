@@ -1,7 +1,7 @@
 use crate::{
     input::{
         limits::{MAX_ACCESSES_PER_TEST, MAX_STREAMS_PER_CASE, MAX_WINDOW_SIZES_PER_CASE},
-        scalar::Address,
+        scalar::AddressMagnitude,
     },
     issue::{Issue, IssueCode, IssueOrderKey, IssuePath, IssuePhase},
 };
@@ -14,12 +14,12 @@ use super::{
 
 pub(super) enum PreparedKind<'scenario> {
     Linear {
-        base: Address,
-        stride: Address,
+        base: &'scenario AddressMagnitude,
+        stride: &'scenario AddressMagnitude,
     },
     Sweep {
-        bases: &'scenario [Address],
-        strides: &'scenario [Address],
+        bases: &'scenario [AddressMagnitude],
+        strides: &'scenario [AddressMagnitude],
     },
     MultiStream {
         streams: &'scenario [StreamScenario],

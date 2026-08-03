@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::{
     error::ExitClass,
     input::{SpannedYamlDocument, SpannedYamlKind},
-    issue::{Issue, IssuePath},
+    issue::{Issue, IssueCode, IssuePath},
 };
 
 use super::{
@@ -28,9 +28,17 @@ impl ScenarioDecodeError {
         &self.issues
     }
 
-    /// Returns Scenario failure exit class 3.
-    pub const fn exit_class(&self) -> ExitClass {
-        ExitClass::ScenarioOrAddress
+    /// Returns analysis exit class 4 only for bounded-infrastructure failure.
+    pub fn exit_class(&self) -> ExitClass {
+        if self
+            .issues
+            .iter()
+            .any(|issue| issue.code() == IssueCode::AnalysisFailed)
+        {
+            ExitClass::Analysis
+        } else {
+            ExitClass::ScenarioOrAddress
+        }
     }
 }
 

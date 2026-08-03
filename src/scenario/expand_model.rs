@@ -6,14 +6,14 @@ use super::model::{AccessCount, StreamName, WindowSize};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LinearAccess {
     base_bytes: Address,
-    stride_bytes: Address,
+    stride_bytes: Option<Address>,
     accesses: AccessCount,
 }
 
 impl LinearAccess {
     pub(super) const fn new(
         base_bytes: Address,
-        stride_bytes: Address,
+        stride_bytes: Option<Address>,
         accesses: AccessCount,
     ) -> Self {
         Self {
@@ -28,8 +28,8 @@ impl LinearAccess {
         self.base_bytes
     }
 
-    /// Returns the byte stride.
-    pub const fn stride_bytes(self) -> Address {
+    /// Returns the checked stride, or `None` when one access leaves it unused.
+    pub const fn stride_bytes(self) -> Option<Address> {
         self.stride_bytes
     }
 

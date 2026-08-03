@@ -121,11 +121,13 @@ fn push_mapped_target(
     index: u64,
     targets: &mut Vec<u16>,
 ) -> Result<(), ScenarioGenerationError> {
-    let address = linear
-        .stride_bytes()
-        .get()
-        .checked_mul(u128::from(index))
-        .and_then(|offset| linear.base_bytes().get().checked_add(offset))
+    let offset = match (index, linear.stride_bytes()) {
+        (0, _) => Some(0),
+        (_, Some(stride)) => stride.get().checked_mul(u128::from(index)),
+        (_, None) => None,
+    };
+    let address = offset
+        .and_then(|value| linear.base_bytes().get().checked_add(value))
         .ok_or(ScenarioGenerationError::AnalysisFailed)?;
     let result = mapper
         .map_address(Address::from_u128(address))

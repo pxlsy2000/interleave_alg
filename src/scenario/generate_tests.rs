@@ -30,7 +30,7 @@ mapping:
 fn linear(base: u128, stride: u128, accesses: u64) -> LinearAccess {
     LinearAccess::new(
         Address::from_u128(base),
-        Address::from_u128(stride),
+        Some(Address::from_u128(stride)),
         AccessCount::new(accesses),
     )
 }

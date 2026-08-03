@@ -6,6 +6,7 @@ mod decode_stream;
 mod decode_support;
 mod decode_values;
 mod expand;
+mod expand_descriptors;
 mod expand_model;
 mod expand_prepare;
 mod expand_totals;
